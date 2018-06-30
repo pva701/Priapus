@@ -20,22 +20,26 @@ data LTL
     deriving (Show, Generic)
 
 parseLTL :: String -> Either PError LTL
-parseLTL = runParser ltlExpr ""
+parseLTL = runParser ltlExprTrim ""
 
 -- Copied from here https://markkarpov.com/megaparsec/parsing-simple-imperative-language.html
 type Parser = Parsec Void String
 type PError = ParseError Char Void
 
 -- phi = p | not phi | phi or phi | X phi | phi U phi | phi and phi | phi -> phi | phi R phi | F phi | G phi
+
+ltlExprTrim :: Parser LTL
+ltlExprTrim = space *> ltlExpr <* eof
+
 ltlExpr :: Parser LTL
-ltlExpr = makeExprParser term operators <* eof
+ltlExpr = makeExprParser term operators
 
 operators :: [[Operator Parser LTL]]
 operators =
     [ [ Prefix (Not <$ rword "not"), Prefix (XOp <$ rword "X"),
         Prefix (fop <$ rword "F"), Prefix (gop <$ rword "G")]
-    , [InfixL (andop <$ rword "and")]
-    , [InfixL (Or <$ rword "or"), InfixL (UOp <$ rword "U"), InfixL (rop <$ rword "R")]
+    , [InfixL (andop <$ rword "and"), InfixL (UOp <$ rword "U"), InfixL (rop <$ rword "R")]
+    , [InfixL (Or <$ rword "or")]
     , [InfixL (impl <$ rword "->") ]
     ]
   where
