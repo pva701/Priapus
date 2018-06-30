@@ -1,0 +1,62 @@
+-- This file has been generated from package.yaml by hpack version 0.20.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 3db3b0a3829f0c3add3d50d28df9bcdc3b6afd4366e7e07c2704f6628b22e5ab
+
+name:           priapus
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/priapus#readme>
+homepage:       https://github.com/githubuser/priapus#readme
+bug-reports:    https://github.com/githubuser/priapus/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+
+extra-source-files:
+    ChangeLog.md
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/priapus
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_priapus
+  default-language: Haskell2010
+
+executable priapus-exe
+  main-is: Main.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , priapus
+  other-modules:
+      Paths_priapus
+  default-language: Haskell2010
+
+test-suite priapus-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , priapus
+  other-modules:
+      Paths_priapus
+  default-language: Haskell2010
