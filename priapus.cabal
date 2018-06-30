@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3db3b0a3829f0c3add3d50d28df9bcdc3b6afd4366e7e07c2704f6628b22e5ab
+-- hash: 5d64fc07f85aa6ba7c7903bea5f2f1fdd00bad01e127a198bb7e14b65348c8d0
 
 name:           priapus
 version:        0.1.0.0
@@ -30,11 +30,41 @@ library
       src
   build-depends:
       base >=4.7 && <5
+    , universum 
   exposed-modules:
       Lib
+      LTL
   other-modules:
       Paths_priapus
   default-language: Haskell2010
+  ghc-options:         -Wall
+                       -fno-warn-orphans
+  default-extensions:   DeriveDataTypeable
+                        DeriveGeneric
+                        GeneralizedNewtypeDeriving
+                        StandaloneDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+                        FunctionalDependencies
+                        DefaultSignatures
+                        NoImplicitPrelude
+                        OverloadedStrings
+                        RecordWildCards
+                        TypeApplications
+                        TupleSections
+                        ViewPatterns
+                        LambdaCase
+                        MultiWayIf
+                        ConstraintKinds
+                        UndecidableInstances
+                        BangPatterns
+                        TemplateHaskell
+                        ScopedTypeVariables
+                        TypeFamilies
+                        GADTs
+                        MonadFailDesugaring
+                        TypeOperators
 
 executable priapus-exe
   main-is: Main.hs
