@@ -1,27 +1,24 @@
 
--- | Language parser and ADT
+-- | Language expressions parser and ADT
 
-module Language.Parser
+module Language.Expr
        ( -- * Expressions
          Value (..)
        , Ident (..)
+       , Op (..)
        , Expr (..)
-       , langExpr
+       , expr
+       , ident
        ) where
 
 import Universum hiding (Const, try)
 
 import qualified Data.Set as S
 import Text.Megaparsec
-import Text.Megaparsec.Char
 import Text.Megaparsec.Expr
 
 import Language.Lexer
 import Language.Types
-
---------------------------------------------------
--- Expressions
---------------------------------------------------
 
 -- | Value types
 data Value
@@ -50,7 +47,12 @@ data Op
 
 -- | Reserved words (cannot be identifiers)
 reserved :: Set Text
-reserved = S.fromList ["int", "bool", "true", "false", "fun", "start", "return", "while", "break"]
+reserved = S.fromList
+    [ "int", "bool"
+    , "true", "false"
+    , "fun", "start", "return", "while", "break"
+    , "if", "else"
+    ]
 
 ident :: Parser Ident
 ident = Ident <$> identifier (flip S.member reserved)
@@ -62,11 +64,12 @@ value :: Parser Value
 value = Num <$> number
     <|> boolean
 
-langTerm :: Parser Expr
-langTerm =
-        parens langExpr
+term :: Parser Expr
+
+term =
+        parens expr
     <|> Const <$> value
-    <|> try (Call <$> ident <*> parens (langExpr `sepBy` str ","))
+    <|> try (Call <$> ident <*> parens (expr `sepBy` str ","))
     <|> Var <$> ident
 
 operators :: [[Operator Parser Expr]]
@@ -80,5 +83,5 @@ operators =
   where
     allOp inf = map $ \(op, sym) -> inf $ Binop op <$ str sym
 
-langExpr :: Parser Expr
-langExpr = makeExprParser langTerm operators
+expr :: Parser Expr
+expr = makeExprParser term operators
