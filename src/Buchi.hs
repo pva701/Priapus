@@ -4,7 +4,8 @@ module Buchi
     ( BuchiAutomaton (..)
     , GenBuchiAutomaton (..)
 
-    , intersectBuchiAutomaton
+    , intersectBuchiAutomatons
+    , gbaToBuchiAutomaton
     ) where
 
 import           Universum
@@ -29,6 +30,13 @@ createTransitions = foldl' addEdge mempty
         f' Nothing  = Just (S.singleton s2)
         f' (Just s) = Just (S.insert s2 s)
 
+toFlatTransitions :: Transitions alph state -> [(state, alph, state)]
+toFlatTransitions gr = do
+    (fr, byAl) <- M.toList gr
+    (a, toSet) <- M.toList byAl
+    to <- S.toList toSet
+    pure (fr, a, to)
+
 data BuchiAutomaton alph state = BuchiAutomaton
     { baTransitions :: Transitions alph state
     , baInit        :: Set state
@@ -39,7 +47,41 @@ data GenBuchiAutomaton alph state = GenBuchiAutomaton
     { baTransitions :: Transitions alph state
     , baInit        :: Set state
     , baFinal       :: Set (Set state)
+    -- pva701: baFinal shouldn't be empty, if so then GBA can't be converted
+    -- to BuchiAutomaton because the GBA accepts any run, but
+    -- there is no equalent Buchi automaton which accepts any run
+    -- probably we should add new constructor to it
     }
+
+-- GBA to Buchi automaton --
+
+newtype Layer = Layer Int
+    deriving (Eq, Ord, Show)
+
+gbaToBuchiAutomaton
+    :: forall alph state . (Ord alph, Ord state)
+    => GenBuchiAutomaton alph state -> BuchiAutomaton alph (state, Layer)
+gbaToBuchiAutomaton (GenBuchiAutomaton t i f) = BuchiAutomaton t1 i1 f1
+  where
+    headL [] = error "invalid GBA: empty set of sets"
+    headL (x:_) = x
+
+    n = length fxs
+    fxs = S.toList f
+
+    i1 = S.fromList $ map (, Layer 0) $ S.toList i
+    f1 = S.fromList $ map (, Layer 0) $ S.toList $ headL fxs
+
+    t1 = createTransitions $ concatMap constructEdges $ toFlatTransitions t
+
+    constructEdges :: (state, alph, state) -> [((state, Layer), alph, (state, Layer))]
+    constructEdges (s1, a, s2) = do
+        (idx, final) <- zip [0..] fxs
+        pure $
+          if s1 `S.member` final then ((s1, Layer idx), a, (s2, Layer $ (idx + 1) `mod` n))
+          else ((s1, Layer idx), a, (s2, Layer idx))
+
+-- Intersection --
 
 type InvTransitions alph state = Map alph (Set (state, state))
 
@@ -51,20 +93,21 @@ transitionToInv = foldl' f mempty . M.toList
     f :: InvTransitions alph state -> (state, Map alph (Set state)) -> InvTransitions alph state
     f m1 (s, m2) = M.unionWith (<>) m1 (fmap (S.fromList . map (s,) . S.toList) m2)
 
-data Layer = FirstL | SecondL
+
+data TwoLayers = FirstL | SecondL
     deriving (Eq, Ord, Show)
 
-anotherLayer :: Layer -> Layer
+anotherLayer :: TwoLayers -> TwoLayers
 anotherLayer FirstL = SecondL
 anotherLayer SecondL = FirstL
 
-intersectBuchiAutomaton
+intersectBuchiAutomatons
     :: forall alph state1 state2 .
        (Ord state1, Ord state2, Ord alph)
     => BuchiAutomaton alph state1
     -> BuchiAutomaton alph state2
-    -> BuchiAutomaton alph (state1, state2, Layer)
-intersectBuchiAutomaton (BuchiAutomaton t1 i1 f1) (BuchiAutomaton t2 i2 f2) =
+    -> BuchiAutomaton alph (state1, state2, TwoLayers)
+intersectBuchiAutomatons (BuchiAutomaton t1 i1 f1) (BuchiAutomaton t2 i2 f2) =
     BuchiAutomaton (newTrans1 <> newTrans2) newInit newFinal
   where
     newInit = S.fromList [(x, y, FirstL) | x <- toList i1, y <- toList i2] -- start states of new automaton
@@ -81,8 +124,8 @@ intersectBuchiAutomaton (BuchiAutomaton t1 i1 f1) (BuchiAutomaton t2 i2 f2) =
         :: (Ord state', Ord state)
         => InvTransitions alph state''
         -> Set state'
-        -> Layer
-        -> ((state', state'', Layer) -> state)
+        -> TwoLayers
+        -> ((state', state'', TwoLayers) -> state)
         -> Transitions alph state
         -> (alph, Set (state', state'))
         -> Transitions alph state
