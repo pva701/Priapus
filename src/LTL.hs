@@ -3,12 +3,12 @@ module LTL
     , parseLTL
     ) where
 
-import           Universum                  hiding (many, try)
+import Universum hiding (many, try)
 
-import           Text.Megaparsec
-import           Text.Megaparsec.Char
+import Text.Megaparsec
+import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import           Text.Megaparsec.Expr
+import Text.Megaparsec.Expr
 
 data LTL
     = Var String
