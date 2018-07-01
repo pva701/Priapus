@@ -1,0 +1,12 @@
+fun int f(int x, int y) {
+    int z = 0;
+    return x + y + z;
+}
+
+start {
+    int x = 0, y = 10, i = 0;
+    bool fl = false;
+
+    while (fl)
+        fl = f(x, i) > 10;
+}
