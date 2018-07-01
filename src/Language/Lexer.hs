@@ -5,6 +5,7 @@ module Language.Lexer
        ( lexeme
        , symbol
        , parens
+       , parens'
        , str
        , rword
        , identifier
@@ -33,8 +34,11 @@ lexeme = L.lexeme sc
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
+parens' :: Text -> Text -> Parser a -> Parser a
+parens' q p = between (symbol q) (symbol p)
+
 parens :: Parser a -> Parser a
-parens = between (symbol "(") (symbol ")")
+parens = parens' "(" ")"
 
 str :: Text -> Parser ()
 str = void . lexeme . try . string

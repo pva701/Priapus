@@ -3,7 +3,9 @@
 
 module Language.Stmt
        ( Stmt (..)
+       , Type (..)
        , stmt
+       , typename
        ) where
 
 import Universum hiding (Type, break, many, some, try)
@@ -58,7 +60,7 @@ call :: Parser Stmt
 call = Call <$> Expr.ident <*> parens (Expr.expr `sepBy` str ",")
 
 block :: Parser Stmt
-block = try (between (symbol "{") (symbol "}") (flattenSeqs <$> many singleStmt))
+block = try (parens' "{" "}" (flattenSeqs <$> many singleStmt))
     <|> singleStmt
 
 ifElse :: Parser Stmt

@@ -48,7 +48,7 @@ data Op
 -- | Reserved words (cannot be identifiers)
 reserved :: Set Text
 reserved = S.fromList
-    [ "int", "bool"
+    [ "int", "bool", "void"
     , "true", "false"
     , "fun", "start", "return", "while", "break"
     , "if", "else"
