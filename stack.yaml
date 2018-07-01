@@ -4,4 +4,4 @@ packages:
 - .
 
 ghc-options:
-    # priapus:       -Werror
+    priapus:       -Werror
