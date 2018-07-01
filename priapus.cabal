@@ -31,7 +31,6 @@ library
   build-depends:
       base >=4.7 && <5
     , containers >= 0.5 
-    , dlist
     , universum 
     , text
     , megaparsec

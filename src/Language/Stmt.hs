@@ -10,7 +10,6 @@ import Universum hiding (Type, break, many, some, try)
 
 import Text.Megaparsec
 
-import qualified Data.DList as DL
 import Language.Expr (Expr, Ident (..), Value (..))
 import qualified Language.Expr as Expr
 import Language.Lexer
@@ -47,7 +46,7 @@ declaration = do
             x <- Expr.ident <* str "="
             v <- Expr.expr
             pure $ Seq (Declare t x) (Assign x v)
-    listToSeq <$> (try decAssign <|> onlyDec) `sepBy` str ","
+    flattenSeqs <$> (try decAssign <|> onlyDec) `sepBy` str ","
 
 break :: Parser Stmt
 break = Break <$ rword "break"
@@ -59,7 +58,7 @@ call :: Parser Stmt
 call = Call <$> Expr.ident <*> parens (Expr.expr `sepBy` str ",")
 
 block :: Parser Stmt
-block = try (between (symbol "{") (symbol "}") (listToSeq <$> many singleStmt))
+block = try (between (symbol "{") (symbol "}") (flattenSeqs <$> many singleStmt))
     <|> singleStmt
 
 ifElse :: Parser Stmt
@@ -80,7 +79,7 @@ singleStmt =
     <|> try while
 
 stmt :: Parser Stmt
-stmt = listToSeq <$> some singleStmt
+stmt = flattenSeqs <$> some singleStmt
 
 ------------------------------------------------------------
 -- Statement sequence normalization
@@ -90,20 +89,22 @@ maybeToStmt :: Maybe Stmt -> Stmt
 maybeToStmt (Just s) = s
 maybeToStmt Nothing  = Skip
 
-seqToList :: Stmt -> [Stmt]
-seqToList (Seq a b) = a : seqToList b
-seqToList s         = [s]
-
 listToSeq :: [Stmt] -> Stmt
 listToSeq [] = Skip
-listToSeq ls = foldl1 Seq ls
+listToSeq ls = foldr1 Seq ls
 
--- straightenSeq :: Stmt -> Stmt
--- straightenSeq (Seq s@(Seq _ _) c) =
---     case straightenSeq s of
---         Seq a as -> Seq a (Seq c as)
--- straightenSeq (Seq s Skip) = straightenSeq s
--- straightenSeq (Seq Skip s) = straightenSeq s
--- straightenSeq s            = s
+seqToList :: Stmt -> [Stmt]
+seqToList s = case seqToList' s of
+    Nothing -> [s]
+    Just ss -> ss
+  where
+    seqToList' :: Stmt -> Maybe [Stmt]
+    seqToList' (Seq a b) = Just $ seqToList a ++ seqToList b
+    seqToList' Skip      = Just []
+    seqToList' _         = Nothing
 
+flattenSeq :: Stmt -> Stmt
+flattenSeq = listToSeq . seqToList
 
+flattenSeqs :: [Stmt] -> Stmt
+flattenSeqs = listToSeq . concatMap seqToList
