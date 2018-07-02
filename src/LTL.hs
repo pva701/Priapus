@@ -26,7 +26,7 @@ parseLTL = runParser ltlExprTrim ""
 
 -- Copied from here https://markkarpov.com/megaparsec/parsing-simple-imperative-language.html
 
--- phi = p | not phi | phi or phi | X phi | phi U phi | phi and phi | phi -> phi | phi R phi | F phi | G phi
+-- phi = p | not phi | phi || phi | X phi | phi U phi | phi && phi | phi -> phi | phi R phi | F phi | G phi
 
 ltlExprTrim :: Parser LTL
 ltlExprTrim = space *> ltlExpr <* eof
@@ -38,8 +38,8 @@ operators :: [[Operator Parser LTL]]
 operators =
     [ [ Prefix (Not <$ rword "not"), Prefix (XOp <$ rword "X"),
         Prefix (fop <$ rword "F"), Prefix (gop <$ rword "G")]
-    , [InfixL (andop <$ rword "and"), InfixL (UOp <$ rword "U"), InfixL (rop <$ rword "R")]
-    , [InfixL (Or <$ rword "or")]
+    , [InfixL (andop <$ rword "&&"), InfixL (UOp <$ rword "U"), InfixL (rop <$ rword "R")]
+    , [InfixL (Or <$ rword "||")]
     , [InfixL (impl <$ rword "->") ]
     ]
   where
@@ -50,7 +50,7 @@ operators =
     impl a b = Not a `Or` b
 
 rws :: [Text] -- list of reserved words
-rws = ["true", "false", "not", "or", "X", "U", "and", "->", "R", "F", "G"]
+rws = ["true", "false", "not", "X", "U", "R", "F", "G"]
 
 ident :: Parser Text
 ident = identifier (`elem` rws)
