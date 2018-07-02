@@ -12,7 +12,7 @@ import Universum hiding (Type, break, many, some, try)
 
 import Text.Megaparsec
 
-import Language.Expr (Expr, Ident (..), Value (..))
+import Language.Expr (Expr, Ident (..))
 import qualified Language.Expr as Expr
 import Language.Lexer
 import Language.Types
@@ -105,8 +105,8 @@ seqToList s = case seqToList' s of
     seqToList' Skip      = Just []
     seqToList' _         = Nothing
 
-flattenSeq :: Stmt -> Stmt
-flattenSeq = listToSeq . seqToList
+-- flattenSeq :: Stmt -> Stmt
+-- flattenSeq = listToSeq . seqToList
 
 flattenSeqs :: [Stmt] -> Stmt
 flattenSeqs = listToSeq . concatMap seqToList

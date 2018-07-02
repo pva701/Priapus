@@ -33,6 +33,7 @@ library
     , containers >= 0.5 
     , universum 
     , text
+    , containers
     , megaparsec
   exposed-modules:
                   Lib
@@ -83,6 +84,7 @@ executable priapus-exe
       base >=4.7 && <5
     , universum
     , priapus
+    , universum
   other-modules:
       Paths_priapus
   default-language: Haskell2010

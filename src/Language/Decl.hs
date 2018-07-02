@@ -7,7 +7,7 @@ import Universum hiding (Type, many)
 
 import Text.Megaparsec
 
-import Language.Expr (Expr, Ident (..), Value (..))
+import Language.Expr (Ident (..))
 import qualified Language.Expr as Expr
 import Language.Lexer
 import Language.Stmt (Stmt, Type (..))
