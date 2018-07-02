@@ -4,6 +4,8 @@
 module Buchi
     ( BuchiAutomaton (..)
     , GenBuchiAutomaton (..)
+    , Layer
+    , createTransitions
 
     , intersectBuchiAutomatons
     , gbaToBuchiAutomaton
@@ -19,18 +21,7 @@ import qualified Data.Set  as S
 type Transitions alph state = Map state (Map alph (Set state))
 
 createTransitions :: forall alph state . (Ord state, Ord alph) => [(state, alph, state)] -> Transitions alph state
-createTransitions = foldl' addEdge mempty
-  where
-    addEdge :: Transitions alph state -> (state, alph, state) -> Transitions alph state
-    addEdge gr (s1, a, s2) = M.alter f s1 gr
-      where
-        f :: Maybe (Map alph (Set state)) -> Maybe (Map alph (Set state))
-        f Nothing     = Just (M.singleton a (S.singleton s2))
-        f (Just byAl) = Just $ M.alter f' a byAl
-
-        f' :: Maybe (Set state) -> Maybe (Set state)
-        f' Nothing  = Just (S.singleton s2)
-        f' (Just s) = Just (S.insert s2 s)
+createTransitions = M.unionsWith (M.unionWith (<>)) . map (\(s1, a, s2) -> M.singleton s1 (M.singleton a (S.singleton s2)))
 
 toFlatTransitions :: Transitions alph state -> [(state, alph, state)]
 toFlatTransitions gr = do
@@ -43,7 +34,7 @@ data BuchiAutomaton alph state = BuchiAutomaton
     { baTransitions :: Transitions alph state
     , baInit        :: Set state
     , baFinal       :: Set state
-    }
+    } deriving (Show)
 
 data GenBuchiAutomaton alph state = GenBuchiAutomaton
     { baTransitions :: Transitions alph state
@@ -53,7 +44,7 @@ data GenBuchiAutomaton alph state = GenBuchiAutomaton
     -- to BuchiAutomaton because the GBA accepts any run, but
     -- there is no equalent Buchi automaton which accepts any run
     -- probably we should add new constructor to it
-    }
+    } deriving (Show)
 
 -- GBA to Buchi automaton --
 
