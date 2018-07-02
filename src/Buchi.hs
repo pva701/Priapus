@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Buchi
     ( BuchiAutomaton (..)
@@ -6,6 +7,7 @@ module Buchi
 
     , intersectBuchiAutomatons
     , gbaToBuchiAutomaton
+    , checkEmptiness
     ) where
 
 import           Universum
@@ -139,3 +141,86 @@ intersectBuchiAutomatons (BuchiAutomaton t1 i1 f1) (BuchiAutomaton t2 i2 f2) =
             let toSt = conv (sa2, sb2, toLayer)
             pure (fromSt, al, toSt)
 
+
+-- Check emptiness --
+
+type Used state = Set state
+type Graph state = Map state (Set state)
+type Components state = Map state Int
+
+checkEmptiness :: (Show state, Ord state) => BuchiAutomaton alph state -> Bool
+checkEmptiness (BuchiAutomaton tr inp fin) =
+    let gr = transitionsToGraph tr -- graph without letters
+        invGr = invGraph gr        -- inverted graph
+        allNodes = M.keys tr
+        -- Finding SCC
+        order = dfs1 gr allNodes
+        comp = dfs2 invGr order -- map from node to number of component
+        -- Condensing graph
+        condGraph = condenseGraph comp gr
+        getComp v = fromMaybe (error $ "component for " <> show v <> " in condense graph not found") (M.lookup v comp)
+        compSize = M.fromListWith (+) $ map (\x -> (x,1::Int)) $ M.elems comp -- map from component to its size
+        producesCycle cp = -- component can produce cycle if either it's not trivial or it has a loop
+            fromMaybe (0 :: Int) (flip M.lookup compSize cp) > 1 ||
+                                 cp `S.member` fromMaybe mempty (M.lookup cp condGraph)
+        compInps = map getComp $ toList inp -- componets of input nodes
+        finProcusingCycle = S.fromList $ filter producesCycle $ map getComp $ toList fin -- final nodes which can produce a cycle
+        visited = runDfs pass identity (dfs (const pass)) condGraph compInps -- visited nodes from input nodes
+    in all (flip S.notMember finProcusingCycle) $ toList visited
+
+dfs1 :: Ord state => Graph state -> [state] -> [state]
+dfs1 gr nodes = snd $ runDfs pass _1 (dfs (modify . second . (:))) gr nodes
+
+dfs2 :: forall state . Ord state => Graph state -> [state] -> Components state
+dfs2 gr nodes = (^. _3) $ (runDfs afterRun _1 (dfs afterDfs) gr nodes)
+  where
+    afterDfs :: state -> State (Used state, Sum Int, Components state) ()
+    afterDfs v = do
+        Sum c <- gets (view _2)
+        modify (_3 %~ M.insert v c)
+    afterRun = modify (_2 %~ (<> Sum 1))
+
+runDfs
+    :: (Monoid s, Ord state)
+    => State s ()
+    -> Lens' s (Used state)
+    -> (Lens' s (Used state) -> Graph state -> state -> State s ())
+    -> Graph state
+    -> [state]
+    -> s
+runDfs afterRun ln dfsF gr nodes = flip execState mempty $
+  forM_ nodes $ \v -> do
+      used <- use ln
+      unless (v `S.member` used) $ do
+          dfsF ln gr v
+          afterRun
+
+dfs :: Ord state => (state -> State s ()) -> Lens' s (Used state) -> Graph state -> state -> State s ()
+dfs after ln gr v = do
+    modify (ln %~ S.insert v)
+    used <- use ln
+    forM_ (maybe [] toList $ M.lookup v gr) $ \to ->
+        unless (to `S.member` used) $ dfs after ln gr to
+    after v
+
+condenseGraph :: Ord state => Components state -> Graph state -> Graph Int
+condenseGraph comps = foldl' addEdges mempty . M.toList
+  where
+    addEdges gr (fr, to) = foldl' (addEdge $ getComp fr) gr $ S.toList to
+
+    addEdge fr gr (getComp -> to) = case M.lookup fr gr of
+        Nothing -> M.insert fr (S.singleton to) gr
+        Just s  -> M.insert fr (to `S.insert` s) gr
+
+    getComp v = fromMaybe (error "vertex not found in components") $ M.lookup v comps
+
+transitionsToGraph :: Ord state => Transitions alph state -> Graph state
+transitionsToGraph = fmap (S.fromList . concatMap toList .  toList)
+
+invGraph :: Ord state => Graph state -> Graph state
+invGraph = foldl' f mempty . M.toList
+  where
+    f gr (fr, to) = foldl' (addEdge fr) gr $ toList to
+    addEdge to gr fr = case M.lookup fr gr of
+        Nothing -> M.insert fr (S.singleton to) gr
+        Just s  -> M.insert fr (to `S.insert` s) gr
