@@ -1,0 +1,16 @@
+fun int sum(int x, int y) {
+    return x + y;
+}
+
+start {
+  int i = 0, j = 0;
+  int n = 10, m = 20, result = 0;
+ 
+  while (i < n) {
+    while (j <= i) {
+      result = result + sum(i, j);
+      j = j + 1;
+    }
+    i = i + 1;
+  }
+}

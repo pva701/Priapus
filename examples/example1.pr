@@ -1,12 +1,13 @@
 fun int f(int x, int y) {
-    int z = 0;
-    return x + y + z;
+    return x + y + 3;
 }
 
 start {
-    int x = 0, y = 10, i = 0;
-    bool fl = false;
+    int x = 5, y = 10, i = 0;
+    bool fl = true;
 
-    while (fl)
-        fl = f(x, i) > 10;
+    while (fl) {
+        fl = f(x, i) < 10;
+        i = i + 1;
+    }
 }

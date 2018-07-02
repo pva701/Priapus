@@ -1,0 +1,10 @@
+start {
+    int n = 10, sum = 0, fact = 1;
+    int i = 0;
+
+    while (i <= n) {
+        if (i > 5) fact = fact * i;
+        else skip;
+        sum = sum + i;
+    }
+}
