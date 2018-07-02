@@ -65,7 +65,6 @@ value = Num <$> number
     <|> boolean
 
 term :: Parser Expr
-
 term =
         parens expr
     <|> Const <$> value

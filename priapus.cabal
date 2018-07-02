@@ -38,6 +38,7 @@ library
   exposed-modules:
                   Lib
                   LTL
+                  Buchi
                   Language.Types
                   Language.Lexer
                   Language.Expr
