@@ -96,9 +96,7 @@ listToSeq [] = Skip
 listToSeq ls = foldr1 Seq ls
 
 seqToList :: Stmt -> [Stmt]
-seqToList s = case seqToList' s of
-    Nothing -> [s]
-    Just ss -> ss
+seqToList s = fromMaybe [s] $ seqToList' s
   where
     seqToList' :: Stmt -> Maybe [Stmt]
     seqToList' (Seq a b) = Just $ seqToList a ++ seqToList b
