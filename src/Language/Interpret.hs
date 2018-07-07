@@ -8,7 +8,7 @@ module Language.Interpret
 import Universum hiding (Type, lookup)
 
 import Control.Monad.Error (Error (..))
-import Control.Monad.Except (liftEither, throwError)
+import Control.Monad.Except (catchError, liftEither, throwError)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 
@@ -16,7 +16,7 @@ import Language.Decl (Decl (..), Program (..))
 import Language.Expr (Expr, Ident, Op (..), Value (..))
 import qualified Language.Expr as Expr
 import Language.Stmt (Stmt, Type (..))
-import qualified Language.Stmt (Stmt)
+import qualified Language.Stmt as Stmt
 
 fromJust :: Maybe a -> a
 fromJust (Just a) = a
@@ -33,6 +33,9 @@ data InterpretError
     | TypeMismatch !Type !Type
     | NoReturnVal !Ident
     | UnknownError !String
+      -- * Special errors for control flow (way simpler than messing with ContT )00)
+    | BreakError
+    | ReturnError !(Maybe Value)
     deriving (Eq, Show, Generic)
 
 instance Exception InterpretError
@@ -160,7 +163,7 @@ evalCall f args = do
     enter
     forM_ (zip dParams args) $
         \((t, x), v) -> declare x t >> assign x v
-    res <- evalStmt dBody
+    res <- evalFuncBody dBody
     leave
     when (fmap valueType res /= dReturnType) $
         throwError $ TypeMismatch (valueType $ fromJust res) (fromJust dReturnType)
@@ -171,4 +174,24 @@ evalCall f args = do
 -----------------------------------------------------------------
 
 evalStmt :: Stmt -> Interpreter (Maybe Value)
-evalStmt = undefined
+evalStmt (Stmt.Seq a b)     = evalStmt a >> evalStmt b
+evalStmt (Stmt.Skip)        = pure Nothing
+evalStmt (Stmt.Declare t x) = Nothing <$ declare x t
+evalStmt (Stmt.Assign x e)  = evalExpr e >>= \v -> Just v <$ assign x v
+evalStmt (Stmt.If cond a b) =
+    ifM (evalExpr cond >>= getBool) (evalStmt a) (evalStmt b)
+evalStmt (Stmt.While cond s) =
+    let loop = ifM (evalExpr cond >>= getBool) (evalStmt s >> loop) (pure Nothing)
+        catchBreak BreakError = pure Nothing
+        catchBreak err        = throwError err
+    in loop `catchError` catchBreak
+evalStmt Stmt.Break = throwError BreakError
+evalStmt (Stmt.Return me) =
+    traverse evalExpr me >>= throwError . ReturnError
+evalStmt (Stmt.Call f args) = mapM evalExpr args >>= evalCall f
+
+evalFuncBody :: Stmt -> Interpreter (Maybe Value)
+evalFuncBody st = evalStmt st `catchError` catchReturn
+  where catchReturn (ReturnError me) = pure me
+        catchReturn err              = throwError err
+
