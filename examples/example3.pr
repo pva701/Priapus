@@ -13,4 +13,6 @@ start {
     }
     i = i + 1;
   }
+
+  return result;
 }

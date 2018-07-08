@@ -1,6 +1,6 @@
 module Language.Driver where
 
-import System.IO (hPutStrLn)
+import System.IO (hClose, hPutStrLn)
 import Universum
 
 import Language.Decl (parseProgram)
@@ -26,3 +26,4 @@ evalProgramGolden inp outp = do
     outh <- openFile outp WriteMode
     hPutStrLn outh $
         maybe "null" show res
+    hClose outh
