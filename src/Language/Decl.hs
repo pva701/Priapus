@@ -52,5 +52,5 @@ mainBody = rword "start" *> parens' "{" "}" Stmt.stmt
 program :: Parser Program
 program = Program <$> many declaration <*> mainBody
 
-parseProgram :: String -> Text -> Either PError Program
+parseProgram :: FilePath -> Text -> Either PError Program
 parseProgram = parse program

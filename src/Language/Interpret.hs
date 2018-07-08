@@ -2,7 +2,9 @@
 -- | Language interpreter
 
 module Language.Interpret
-       ( evalExpr
+       ( InterpretError (..)
+       , Env
+       , evalExpr
        , evalStmt
        , runProgram
        , evalProgram
@@ -15,7 +17,7 @@ import Universum hiding (Type, show)
 import Control.Monad.Except (catchError, liftEither, throwError)
 import qualified Data.Map.Strict as M
 
-import Language.Decl (Decl (..), Program (..), parseProgram)
+import Language.Decl (Decl (..), Program (..))
 import Language.Expr (Expr, Ident, Op (..), Value (..))
 import qualified Language.Expr as Expr
 import Language.Stmt (Stmt, Type (..))
