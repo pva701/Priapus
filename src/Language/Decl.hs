@@ -15,7 +15,7 @@ import Text.Megaparsec
 import Language.Expr (Ident (..), Value)
 import qualified Language.Expr as Expr
 import Language.Lexer
-import Language.Stmt (Scope (..), Stmt, StmtId, Type (..))
+import Language.Stmt (Scope (..), Stmt, Type (..))
 import qualified Language.Stmt as Stmt
 import Language.Types
 
@@ -23,7 +23,7 @@ import Language.Types
 data Decl = Decl
     { dReturnType :: !(Maybe Type)
     , dName       :: !Ident
-    , dParams     :: ![(StmtId, Type, StmtId, Ident)]
+    , dParams     :: ![(Type, Ident)]
     , dBody       :: !Scope
     } deriving (Show, Eq, Generic)
 
@@ -39,8 +39,8 @@ data Program = Program
 retType :: Parser (Maybe Type)
 retType = Just <$> Stmt.typename <|> Nothing <$ rword "void"
 
-param :: Parser (StmtId, Type, StmtId, Ident)
-param = (,,,) <$> Stmt.stmtId <*> Stmt.typename <*> Stmt.stmtId <*> Expr.ident
+param :: Parser (Type, Ident)
+param = (,) <$> Stmt.typename <*> Expr.ident
 
 declaration :: Parser Decl
 declaration = Decl <$ rword "fun"

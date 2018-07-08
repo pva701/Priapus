@@ -16,7 +16,7 @@ module Language.Interpret
 import Prelude (show)
 import Universum hiding (Type, show)
 
-import Control.Lens (makeLenses, uses, (%=), (.=))
+import Control.Lens (makeLenses, uses, (%=), (+=), (-=), (.=))
 import Control.Monad.Except (catchError, throwError)
 import qualified Data.Map.Strict as M
 
@@ -143,6 +143,7 @@ addEdge from to = M.alter (add to) from
 data IState = IState
     { _iCurState  :: !StateId
     , _iAutomaton :: !Automaton
+    , _iAtomicD   :: !Int
     } deriving (Eq, Show, Generic)
 
 makeLenses ''IState
@@ -158,11 +159,21 @@ type Interpreter = StateT IState
 
 transition :: StmtId -> Interpreter a -> Interpreter a
 transition sId action = do
+    atomicD <- use iAtomicD
     initState <- use iCurState
-    iStmtId .= sId
+    when (atomicD <= 0) $
+        iStmtId .= sId
     res <- action
-    resState <- use iCurState
-    iAutomaton %= addEdge initState resState
+    when (atomicD <= 0) $ do
+        resState <- use iCurState
+        iAutomaton %= addEdge initState resState
+    return res
+
+atomic :: StmtId -> Interpreter a -> Interpreter a
+atomic sId action = transition sId $ do
+    iAtomicD += 1
+    res <- action
+    iAtomicD -= 1
     return res
 
 depth :: Interpreter Int
@@ -238,9 +249,10 @@ evalCall :: Ident -> [Value] -> Interpreter (Maybe Value)
 evalCall f args = do
     Decl {..} <- asks (M.lookup f) `whenNothingM` throwError (UndefinedFunc f)
     let Stmt.Scope {..} = dBody
-    enter scopeBegin
-    forM_ (zip dParams args) $
-        \((dId, t, aId, x), v) -> declare dId x t >> assign aId x v
+    atomic scopeBegin $ do
+        enter scopeBegin
+        forM_ (zip dParams args) $
+            \((t, x), v) -> declare initStmtId x t >> assign initStmtId x v
     initDepth <- depth
     res <- evalFuncBody initDepth scopeBody
     leave scopeEnd
@@ -254,11 +266,11 @@ evalCall f args = do
 -----------------------------------------------------------------
 
 evalStmt :: Stmt -> Interpreter (Maybe Value)
-evalStmt (Stmt.Seq a b)      = evalStmt a >> evalStmt b
-evalStmt (Stmt.Atomic sId s) = evalAtomic sId s
-evalStmt Stmt.Skip           = pure Nothing
-evalStmt (Stmt.Declare t sId x)  = Nothing <$ declare sId x t
-evalStmt (Stmt.Assign sId x e) = evalExpr e >>= \v -> Just v <$ assign sId x v
+evalStmt (Stmt.Seq a b)         = evalStmt a >> evalStmt b
+evalStmt (Stmt.Atomic sId s)    = atomic sId $ evalStmt s
+evalStmt Stmt.Skip              = pure Nothing
+evalStmt (Stmt.Declare t sId x) = Nothing <$ declare sId x t
+evalStmt (Stmt.Assign sId x e)  = evalExpr e >>= \v -> Just v <$ assign sId x v
 evalStmt (Stmt.If cond a b) =
     ifM (evalExpr cond >>= getBool) (evalScope a) (evalScope b)
 evalStmt (Stmt.While cond s) = do
@@ -283,10 +295,6 @@ evalScope Stmt.Scope {..} = do
     leave scopeEnd
     return res
 
--- | Later it would create one edge in automata instead of many
-evalAtomic :: StmtId -> Stmt -> Interpreter (Maybe Value)
-evalAtomic _ = evalStmt
-
 evalFuncBody :: Int -> Stmt -> Interpreter (Maybe Value)
 evalFuncBody dp st = evalStmt st `catchError` catchReturn dp
   where catchReturn d (ReturnError sId d' mv) = leaveN sId (d' - d) >> pure mv
@@ -304,7 +312,7 @@ runProgram Program {..} =
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
     initStateId = (initStmtId, initEnv)
     initAutomaton = M.singleton initStateId []
-    initState = IState initStateId initAutomaton
+    initState = IState initStateId initAutomaton 0
 
 evalProgram :: Program -> Either InterpretError (Maybe Value)
 evalProgram = fmap fst . runProgram
