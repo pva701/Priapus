@@ -8,7 +8,8 @@ module Language.Stmt
        , typename
        ) where
 
-import Universum hiding (Type, break, many, some, try)
+import Prelude (show)
+import Universum hiding (Type, break, many, show, some, try)
 
 import Text.Megaparsec
 
@@ -19,7 +20,11 @@ import Language.Types
 
 -- | Type names
 data Type = Bool' | Int'
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Generic)
+
+instance Show Type where
+    show Bool' = "bool"
+    show Int'  = "int"
 
 -- | Language statements
 data Stmt

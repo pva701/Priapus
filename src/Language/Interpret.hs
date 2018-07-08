@@ -9,7 +9,8 @@ module Language.Interpret
        , execProgram
        ) where
 
-import Universum hiding (Type)
+import Prelude (show)
+import Universum hiding (Type, show)
 
 import Control.Monad.Except (catchError, liftEither, throwError)
 import qualified Data.Map.Strict as M
@@ -38,7 +39,25 @@ data InterpretError
       -- * Special errors for control flow (way simpler than messing with ContT )00)
     | BreakError
     | ReturnError !(Maybe Value)
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Generic)
+
+instance Show InterpretError where
+    show (UndefinedVar x) =
+        "Undefined variable: " ++ show x
+    show (UndefinedFunc f) =
+        "Undefined function: " ++ show f
+    show (UndeclaredVar x) =
+        "Trying to assign a value to variable '" ++
+        show x ++ "', which hasn't been declared before"
+    show (TypeMismatch actual expected) =
+        "Type mismatch: expected value of type '" ++ show expected ++
+        "', but got a value of type '" ++ show actual ++ "'"
+    show (NoReturnVal f) =
+        "Function '" ++ show f ++ "' was expected to return a value"
+    show (UnknownError s) =
+        "Unknown error: " ++ s
+    show BreakError = "<break-error>"
+    show (ReturnError _) = "<return-error>"
 
 instance Exception InterpretError
 
