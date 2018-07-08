@@ -3,13 +3,12 @@
 
 module Language.Interpret
        ( evalExpr
+       , evalStmt
        ) where
 
-import Universum hiding (Type, lookup)
+import Universum hiding (Type)
 
-import Control.Monad.Error (Error (..))
 import Control.Monad.Except (catchError, liftEither, throwError)
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 
 import Language.Decl (Decl (..), Program (..))
@@ -40,9 +39,10 @@ data InterpretError
 
 instance Exception InterpretError
 
--- necessary for 'Either' to have 'MonadPlus' instance
-instance Error InterpretError where
-    strMsg = UnknownError
+instance {-# OVERLAPPING #-} Alternative (Either InterpretError) where
+    a@(Right _) <|> _ = a
+    Left _ <|> b = b
+    empty = Left (UnknownError "")
 
 type Scope = Map Ident (Type, Maybe Value)
 
@@ -194,4 +194,3 @@ evalFuncBody :: Stmt -> Interpreter (Maybe Value)
 evalFuncBody st = evalStmt st `catchError` catchReturn
   where catchReturn (ReturnError me) = pure me
         catchReturn err              = throwError err
-
