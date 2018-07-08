@@ -6,8 +6,6 @@ module Language.Interpret
        , Env
        , Automaton
        , IState (..)
-       , iCurState
-       , iAutomaton
        , evalExpr
        , evalStmt
        , runProgram
@@ -18,10 +16,11 @@ module Language.Interpret
 import Prelude (show)
 import Universum hiding (Type, show)
 
-import Control.Lens (makeLenses, (%=), (.=))
+import Control.Lens (makeLenses, uses, (%=), (.=))
 import Control.Monad.Except (catchError, throwError)
 import qualified Data.Map.Strict as M
 
+import Data.List ((!!))
 import Language.Decl (Decl (..), Program (..))
 import Language.Expr (Expr, Ident, Op (..), Value (..))
 import qualified Language.Expr as Expr
@@ -44,8 +43,8 @@ data InterpretError
     | NoReturnVal !Ident
     | UnknownError !String
       -- * Special errors for control flow (way simpler than messing with ContT )00)
-    | BreakError
-    | ReturnError !(Maybe Value)
+    | BreakError !StmtId !Int
+    | ReturnError !StmtId !Int !(Maybe Value)
     deriving (Eq, Generic)
 
 instance Show InterpretError where
@@ -63,8 +62,8 @@ instance Show InterpretError where
         "Function '" ++ show f ++ "' was expected to return a value"
     show (UnknownError s) =
         "Unknown error: " ++ s
-    show BreakError = "<break-error>"
-    show (ReturnError _) = "<return-error>"
+    show BreakError{} = "<break-error>"
+    show ReturnError{} = "<return-error>"
 
 instance Exception InterpretError
 
@@ -120,6 +119,13 @@ envLeave :: Env -> Env
 envLeave (g :| (_:ls)) = g :| ls
 envLeave (_ :| [])     = error "impossible to leave the global scope"
 
+envDepth :: Env -> Int
+envDepth = length
+
+envLeaveN :: Int -> Env -> Env
+envLeaveN 0 = identity
+envLeaveN d = (!! (d-1)) . iterate envLeave
+
 type Decls = Map Ident Decl
 
 type StateId = (StmtId, Env)
@@ -128,6 +134,11 @@ initStmtId :: StmtId
 initStmtId = StmtId (-1) (-1)
 
 type Automaton = Map StateId [StateId]
+
+addEdge :: StateId -> StateId -> Automaton -> Automaton
+addEdge from to = M.alter (add to) from
+  where add e (Just es) = Just $ e:es
+        add e Nothing   = Just [e]
 
 data IState = IState
     { _iCurState  :: !StateId
@@ -139,23 +150,42 @@ makeLenses ''IState
 iEnv :: Lens' IState Env
 iEnv = iCurState . _2
 
+iStmtId :: Lens' IState StmtId
+iStmtId = iCurState . _1
+
 type Interpreter = StateT IState
     (ReaderT Decls (Either InterpretError))
+
+transition :: StmtId -> Interpreter a -> Interpreter a
+transition sId action = do
+    initState <- use iCurState
+    iStmtId .= sId
+    res <- action
+    resState <- use iCurState
+    iAutomaton %= addEdge initState resState
+    return res
+
+depth :: Interpreter Int
+depth = uses iEnv envDepth
 
 lookup :: Ident -> Interpreter Value
 lookup x = use iEnv >>= either throwError pure . envLookup x
 
-declare :: Ident -> Type -> Interpreter ()
-declare x t = iEnv %= envDeclare x t
+declare :: StmtId -> Ident -> Type -> Interpreter ()
+declare sId x t = transition sId $ iEnv %= envDeclare x t
 
-assign :: Ident -> Value -> Interpreter ()
-assign x v = use iEnv >>= either throwError (iEnv .=) . envAssign x v
+assign :: StmtId -> Ident -> Value -> Interpreter ()
+assign sId x v = transition sId $
+    use iEnv >>= either throwError (iEnv .=) . envAssign x v
 
-enter :: Interpreter ()
-enter = iEnv %= envEnter
+enter :: StmtId -> Interpreter ()
+enter sId = transition sId $ iEnv %= envEnter
 
-leave :: Interpreter ()
-leave = iEnv %= envLeave
+leave :: StmtId -> Interpreter ()
+leave sId = transition sId $ iEnv %= envLeave
+
+leaveN :: StmtId -> Int -> Interpreter ()
+leaveN sId n = transition sId $ iEnv %= envLeaveN n
 
 -------------------------------------------------------------
 -- Expressions evaluation
@@ -207,14 +237,17 @@ boolOp f a b = Boolean <$> (f <$> getBool a <*> getBool b)
 evalCall :: Ident -> [Value] -> Interpreter (Maybe Value)
 evalCall f args = do
     Decl {..} <- asks (M.lookup f) `whenNothingM` throwError (UndefinedFunc f)
-    enter
+    let Stmt.Scope {..} = dBody
+    enter scopeBegin
     forM_ (zip dParams args) $
-        \((t, x), v) -> declare x t >> assign x v
-    res <- evalFuncBody dBody
-    leave
+        \((dId, t, aId, x), v) -> declare dId x t >> assign aId x v
+    initDepth <- depth
+    res <- evalFuncBody initDepth scopeBody
+    leave scopeEnd
     when (fmap valueType res /= dReturnType) $
         throwError $ TypeMismatch (valueType $ fromJust res) (fromJust dReturnType)
     return res
+  where
 
 -----------------------------------------------------------------
 -- Statements evaluation
@@ -222,37 +255,42 @@ evalCall f args = do
 
 evalStmt :: Stmt -> Interpreter (Maybe Value)
 evalStmt (Stmt.Seq a b)      = evalStmt a >> evalStmt b
-evalStmt (Stmt.Atomic _ s)   = evalAtomic s
+evalStmt (Stmt.Atomic sId s) = evalAtomic sId s
 evalStmt Stmt.Skip           = pure Nothing
-evalStmt (Stmt.Declare t _ x)  = Nothing <$ declare x t
-evalStmt (Stmt.Assign _ x e) = evalExpr e >>= \v -> Just v <$ assign x v
+evalStmt (Stmt.Declare t sId x)  = Nothing <$ declare sId x t
+evalStmt (Stmt.Assign sId x e) = evalExpr e >>= \v -> Just v <$ assign sId x v
 evalStmt (Stmt.If cond a b) =
     ifM (evalExpr cond >>= getBool) (evalScope a) (evalScope b)
-evalStmt (Stmt.While cond s) =
+evalStmt (Stmt.While cond s) = do
     let loop = ifM (evalExpr cond >>= getBool) (evalScope s >> loop) (pure Nothing)
-        catchBreak BreakError = pure Nothing
-        catchBreak err        = throwError err
-    in loop `catchError` catchBreak
-evalStmt (Stmt.Break _) = throwError BreakError
-evalStmt (Stmt.Return _ me) =
-    traverse evalExpr me >>= throwError . ReturnError
+        catchBreak d (BreakError sId d') = leaveN sId (d' - d) >> pure Nothing
+        catchBreak _ err                 = throwError err
+    initDepth <- depth
+    loop `catchError` catchBreak initDepth
+evalStmt (Stmt.Break sId) = do
+    d <- depth
+    throwError $ BreakError sId d
+evalStmt (Stmt.Return sId me) = do
+    mv <- traverse evalExpr me
+    d <- depth
+    throwError $ ReturnError sId d mv
 evalStmt (Stmt.Call f args) = mapM evalExpr args >>= evalCall f
 
 evalScope :: Stmt.Scope -> Interpreter (Maybe Value)
 evalScope Stmt.Scope {..} = do
-    enter
+    enter scopeBegin
     res <- evalStmt scopeBody
-    leave
+    leave scopeEnd
     return res
 
 -- | Later it would create one edge in automata instead of many
-evalAtomic :: Stmt -> Interpreter (Maybe Value)
-evalAtomic = evalStmt
+evalAtomic :: StmtId -> Stmt -> Interpreter (Maybe Value)
+evalAtomic _ = evalStmt
 
-evalFuncBody :: Stmt -> Interpreter (Maybe Value)
-evalFuncBody st = evalStmt st `catchError` catchReturn
-  where catchReturn (ReturnError me) = pure me
-        catchReturn err              = throwError err
+evalFuncBody :: Int -> Stmt -> Interpreter (Maybe Value)
+evalFuncBody dp st = evalStmt st `catchError` catchReturn dp
+  where catchReturn d (ReturnError sId d' mv) = leaveN sId (d' - d) >> pure mv
+        catchReturn _ err                     = throwError err
 
 ------------------------------------------------------------------
 -- Program evaluation
@@ -260,7 +298,7 @@ evalFuncBody st = evalStmt st `catchError` catchReturn
 
 runProgram :: Program -> Either InterpretError (Maybe Value, IState)
 runProgram Program {..} =
-    usingReaderT funcMap $ usingStateT initState $ evalFuncBody progMain
+    usingReaderT funcMap $ usingStateT initState $ evalFuncBody 1 progMain
   where
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []

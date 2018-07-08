@@ -7,6 +7,8 @@ module Language.Stmt
        , Scope (..)
        , Type (..)
        , stmt
+       , stmtId
+       , scope
        , typename
        ) where
 

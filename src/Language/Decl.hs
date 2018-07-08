@@ -15,7 +15,7 @@ import Text.Megaparsec
 import Language.Expr (Ident (..), Value)
 import qualified Language.Expr as Expr
 import Language.Lexer
-import Language.Stmt (Stmt, Type (..))
+import Language.Stmt (Scope (..), Stmt, StmtId, Type (..))
 import qualified Language.Stmt as Stmt
 import Language.Types
 
@@ -23,8 +23,8 @@ import Language.Types
 data Decl = Decl
     { dReturnType :: !(Maybe Type)
     , dName       :: !Ident
-    , dParams     :: ![(Type, Ident)]
-    , dBody       :: !Stmt
+    , dParams     :: ![(StmtId, Type, StmtId, Ident)]
+    , dBody       :: !Scope
     } deriving (Show, Eq, Generic)
 
 type VarDef = (Type, Ident, Maybe Value)
@@ -39,15 +39,15 @@ data Program = Program
 retType :: Parser (Maybe Type)
 retType = Just <$> Stmt.typename <|> Nothing <$ rword "void"
 
-param :: Parser (Type, Ident)
-param = (,) <$> Stmt.typename <*> Expr.ident
+param :: Parser (StmtId, Type, StmtId, Ident)
+param = (,,,) <$> Stmt.stmtId <*> Stmt.typename <*> Stmt.stmtId <*> Expr.ident
 
 declaration :: Parser Decl
 declaration = Decl <$ rword "fun"
     <*> retType
     <*> Expr.ident
     <*> parens (param `sepBy` symbol ",")
-    <*> parens' "{" "}" Stmt.stmt
+    <*> (Scope <$> Stmt.stmtId <*> parens' "{" "}" Stmt.stmt <*> Stmt.stmtId)
 
 varDef :: Parser VarDef
 varDef = (<* symbol ";") $ (,,)
