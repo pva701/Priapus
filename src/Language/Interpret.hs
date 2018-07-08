@@ -152,7 +152,7 @@ evalExpr (Expr.Call f args) =
     (mapM evalExpr args >>= evalCall f)
     `whenNothingM` throwError (NoReturnVal f)
 
-getInt :: Value -> Interpreter Int
+getInt :: Value -> Interpreter Word8
 getInt (Num i) = pure i
 getInt _       = throwError $ TypeMismatch Bool' Int'
 
@@ -175,10 +175,10 @@ evalOp More = compOp (>)
 evalOp And  = boolOp (&&)
 evalOp Or   = boolOp (||)
 
-arithOp :: (Int -> Int -> Int) -> Value -> Value -> Interpreter Value
+arithOp :: (Word8 -> Word8 -> Word8) -> Value -> Value -> Interpreter Value
 arithOp f a b = Num <$> (f <$> getInt a <*> getInt b)
 
-compOp :: (Int -> Int -> Bool) -> Value -> Value -> Interpreter Value
+compOp :: (Word8 -> Word8 -> Bool) -> Value -> Value -> Interpreter Value
 compOp f a b = Boolean <$> (f <$> getInt a <*> getInt b)
 
 boolOp :: (Bool -> Bool -> Bool) -> Value -> Value -> Interpreter Value

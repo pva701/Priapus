@@ -8,6 +8,7 @@ module Language.Expr
        , Op (..)
        , Expr (..)
        , expr
+       , value
        , ident
        ) where
 
