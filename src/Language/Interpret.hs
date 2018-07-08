@@ -41,6 +41,7 @@ data InterpretError
     | UndeclaredVar !Ident
     | TypeMismatch !Type !Type
     | NoReturnVal !Ident
+    | InfiniteLoop
     | UnknownError !String
       -- * Special errors for control flow (way simpler than messing with ContT )00)
     | BreakError !StmtId !Int
@@ -60,6 +61,8 @@ instance Show InterpretError where
         "', but got a value of type '" ++ show actual ++ "'"
     show (NoReturnVal f) =
         "Function '" ++ show f ++ "' was expected to return a value"
+    show InfiniteLoop =
+        "Infinite loop detected"
     show (UnknownError s) =
         "Unknown error: " ++ s
     show BreakError{} = "<break-error>"
@@ -140,6 +143,9 @@ addEdge from to = M.alter (add to) from
   where add e (Just es) = Just $ e:es
         add e Nothing   = Just [e]
 
+hasEdge :: StateId -> StateId -> Automaton -> Bool
+hasEdge from to = maybe False (to `elem`) . M.lookup from
+
 data IState = IState
     { _iCurState  :: !StateId
     , _iAutomaton :: !Automaton
@@ -166,6 +172,9 @@ transition sId action = do
     res <- action
     when (atomicD <= 0) $ do
         resState <- use iCurState
+        edgeExists <- uses iAutomaton (hasEdge initState resState)
+        when edgeExists $
+            throwError InfiniteLoop
         iAutomaton %= addEdge initState resState
     return res
 
@@ -306,13 +315,23 @@ evalFuncBody dp st = evalStmt st `catchError` catchReturn dp
 
 runProgram :: Program -> Either InterpretError (Maybe Value, IState)
 runProgram Program {..} =
-    usingReaderT funcMap $ usingStateT initState $ evalFuncBody 1 progMain
+    usingReaderT funcMap $ usingStateT initState $
+    (evalFuncBody 1 progMain <* finalLoop) `catchError` catchLoop
   where
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
     initStateId = (initStmtId, initEnv)
     initAutomaton = M.singleton initStateId []
     initState = IState initStateId initAutomaton 0
+
+    -- Make the loop in final state of terminating program
+    finalLoop = do
+        curState <- use iCurState
+        iAutomaton %= addEdge curState curState
+
+    -- Handle the case of non-terminating program
+    catchLoop InfiniteLoop = pure Nothing
+    catchLoop err          = throwError err
 
 evalProgram :: Program -> Either InterpretError (Maybe Value)
 evalProgram = fmap fst . runProgram
