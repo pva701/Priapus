@@ -23,7 +23,7 @@ import Language.Types
 
 -- | Value types
 data Value
-    = Num !Int
+    = Num !Word8
     | Boolean !Bool
     deriving (Eq, Ord, Generic)
 
