@@ -90,9 +90,6 @@ scopeAssign x v e =
 
 type Env = NonEmpty Scope
 
-emptyEnv :: Env
-emptyEnv = mempty :| []
-
 envLookup :: Ident -> Env -> Either InterpretError Value
 envLookup x (g :| (l:ls)) = scopeLookup x l <|> envLookup x (g :| ls)
 envLookup x (g :| [])     = scopeLookup x g
@@ -228,9 +225,10 @@ evalFuncBody st = evalStmt st `catchError` catchReturn
 
 runProgram :: Program -> Either InterpretError (Maybe Value, Env)
 runProgram Program {..} =
-    usingReaderT funcMap $ usingStateT emptyEnv $ evalFuncBody progMain
+    usingReaderT funcMap $ usingStateT initEnv $ evalFuncBody progMain
   where
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
+    initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
 
 evalProgram :: Program -> Either InterpretError (Maybe Value)
 evalProgram = fmap fst . runProgram
