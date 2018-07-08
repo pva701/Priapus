@@ -199,6 +199,7 @@ evalCall f args = do
 
 evalStmt :: Stmt -> Interpreter (Maybe Value)
 evalStmt (Stmt.Seq a b)     = evalStmt a >> evalStmt b
+evalStmt (Stmt.Atomic s)    = evalStmt s
 evalStmt (Stmt.Skip)        = pure Nothing
 evalStmt (Stmt.Declare t x) = Nothing <$ declare x t
 evalStmt (Stmt.Assign x e)  = evalExpr e >>= \v -> Just v <$ assign x v

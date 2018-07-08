@@ -1,6 +1,6 @@
 fun int gcd(int x, int y) {
     int t;
-    while (y != 0) {
+    while (y != 0) atomic {
         x = x % y;
         t = y;
         y = x;

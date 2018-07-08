@@ -37,6 +37,7 @@ data Stmt
     | Break
     | Return (Maybe Expr)
     | Call Ident [Expr]
+    | Atomic Stmt
     deriving (Eq, Ord, Show, Generic)
 
 assignment :: Parser Stmt
@@ -75,6 +76,9 @@ ifElse = (If <$ rword "if") <*> parens Expr.expr <*> block
 while :: Parser Stmt
 while = (While <$ rword "while") <*> parens Expr.expr <*> block
 
+atomic :: Parser Stmt
+atomic = (Atomic <$ rword "atomic") <*> block
+
 singleStmt :: Parser Stmt
 singleStmt =
         try declaration <* symbol ";"
@@ -84,6 +88,7 @@ singleStmt =
     <|> try call <* symbol ";"
     <|> try ifElse
     <|> try while
+    <|> try atomic
 
 stmt :: Parser Stmt
 stmt = flattenSeqs <$> some singleStmt

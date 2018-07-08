@@ -57,7 +57,7 @@ reserved :: Set Text
 reserved = S.fromList
     [ "int", "bool", "void"
     , "true", "false"
-    , "fun", "start", "return", "while", "break"
+    , "fun", "start", "return", "while", "break", "atomic"
     , "if", "else"
     ]
 
