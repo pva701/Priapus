@@ -3,8 +3,12 @@
 
 module Language.Interpret
        ( InterpretError (..)
+       , Interpreter
        , Env
-       , Automaton
+       , StateId
+       , EvalAutomaton
+       , eaTransitions
+       , eaInit
        , IState (..)
        , evalExpr
        , evalStmt
@@ -161,23 +165,29 @@ type StateId = (StmtId, Env)
 initStmtId :: StmtId
 initStmtId = StmtId (-1) (-1)
 
--- | Automaton (Kripke structure) for a program
-type Automaton = Map StateId (Set StateId)
+-- | EvalAutomaton (Kripke structure) for a program
+data EvalAutomaton = EvalAutomaton
+    { _eaTransitions :: !(Map StateId (Set StateId))
+    , _eaInit        :: !(Set StateId)
+    } deriving (Eq, Show, Generic)
 
-addEdge :: StateId -> StateId -> Automaton -> Automaton
-addEdge from to = M.alter (add to) from
+makeLenses ''EvalAutomaton
+
+addEdge :: StateId -> StateId -> EvalAutomaton -> EvalAutomaton
+addEdge from to = eaTransitions %~ M.alter (add to) from
   where add e (Just es) = Just $ S.insert e es
         add e Nothing   = Just $ S.singleton e
 
-hasEdge :: StateId -> StateId -> Automaton -> Bool
-hasEdge from to = maybe False (S.member to) . M.lookup from
+hasEdge :: StateId -> StateId -> EvalAutomaton -> Bool
+hasEdge from to =
+    maybe False (S.member to) . M.lookup from . _eaTransitions
 
 -- | Interpreter state
 data IState = IState
     { _iCurState  :: !StateId
       -- ^ Current program state
-    , _iAutomaton :: !Automaton
-      -- ^ Automaton which has been built so far
+    , _iAutomaton :: !EvalAutomaton
+      -- ^ EvalAutomaton which has been built so far
     , _iAtomicD   :: !Int
       -- ^ If >0, then current code is executed atomically (all computations
       -- represent a single edge in Kripke model).
@@ -358,7 +368,10 @@ runProgram Program {..} =
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
     initStateId = (initStmtId, initEnv)
-    initAutomaton = M.singleton initStateId mempty
+    initAutomaton = EvalAutomaton
+        { _eaTransitions = M.singleton initStateId mempty
+        , _eaInit = S.singleton initStateId
+        }
     initState = IState initStateId initAutomaton 0
 
     -- Make the loop in final state of terminating program
