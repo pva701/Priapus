@@ -4,7 +4,6 @@ start {
 
     while (i <= n) {
         if (i > 5) fact = fact * i;
-        else skip;
         sum = sum + i;
     }
 }

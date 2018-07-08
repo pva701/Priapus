@@ -8,10 +8,12 @@ module Language.Expr
        , Op (..)
        , Expr (..)
        , expr
+       , value
        , ident
        ) where
 
-import Universum hiding (Const, try)
+import Prelude (show)
+import Universum hiding (Const, show, try)
 
 import qualified Data.Set as S
 import Text.Megaparsec
@@ -22,9 +24,14 @@ import Language.Types
 
 -- | Value types
 data Value
-    = Num !Int
+    = Num !Word8
     | Boolean !Bool
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Generic)
+
+instance Show Value where
+    show (Num n)         = show n
+    show (Boolean True)  = "true"
+    show (Boolean False) = "false"
 
 -- | Identifiers
 newtype Ident = Ident Text
@@ -50,7 +57,7 @@ reserved :: Set Text
 reserved = S.fromList
     [ "int", "bool", "void"
     , "true", "false"
-    , "fun", "start", "return", "while", "break"
+    , "fun", "start", "return", "while", "break", "atomic"
     , "if", "else"
     ]
 

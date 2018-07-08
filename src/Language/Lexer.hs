@@ -55,5 +55,5 @@ identifier isReserved = lexeme . try $ p >>= check
         then fail $ "keyword " ++ show x ++ " cannot be an identifier"
         else return x
 
-number :: Parser Int
+number :: Integral a => Parser a
 number = L.signed sc $ lexeme L.decimal

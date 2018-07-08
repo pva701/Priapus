@@ -1,13 +1,18 @@
 
 -- | Functions declarations parser
 
-module Language.Decl where
+module Language.Decl
+       ( Decl (..)
+       , Program (..)
+       , program
+       , parseProgram
+       ) where
 
-import Universum hiding (Type, many)
+import Universum hiding (Type, many, try)
 
 import Text.Megaparsec
 
-import Language.Expr (Ident (..))
+import Language.Expr (Ident (..), Value)
 import qualified Language.Expr as Expr
 import Language.Lexer
 import Language.Stmt (Stmt, Type (..))
@@ -22,9 +27,12 @@ data Decl = Decl
     , dBody       :: !Stmt
     } deriving (Show, Eq, Generic)
 
+type VarDef = (Type, Ident, Maybe Value)
+
 -- | Program body
 data Program = Program
     { progFuncs :: ![Decl]
+    , progVars  :: ![VarDef]
     , progMain  :: !Stmt
     } deriving (Show, Eq, Generic)
 
@@ -41,8 +49,27 @@ declaration = Decl <$ rword "fun"
     <*> parens (param `sepBy` symbol ",")
     <*> parens' "{" "}" Stmt.stmt
 
+varDef :: Parser VarDef
+varDef = (<* symbol ";") $ (,,)
+    <$> Stmt.typename
+    <*> Expr.ident
+    <*> optional (str "=" *> Expr.value)
+
+declOrVarDef :: Parser (Either Decl VarDef)
+declOrVarDef = Left <$> try declaration <|>
+               Right <$> try varDef
+
+declsAndVarDefs :: Parser ([Decl], [VarDef])
+declsAndVarDefs = unzipEithers <$> many declOrVarDef
+  where unzipEithers = foldl' go ([], [])
+        go (dcls, defs) (Left dcl)  = (dcl:dcls, defs)
+        go (dcls, defs) (Right def) = (dcls, def:defs)
+
 mainBody :: Parser Stmt
 mainBody = rword "start" *> parens' "{" "}" Stmt.stmt
 
 program :: Parser Program
-program = Program <$> many declaration <*> mainBody
+program = uncurry Program <$> declsAndVarDefs <*> mainBody
+
+parseProgram :: FilePath -> Text -> Either PError Program
+parseProgram = parse program

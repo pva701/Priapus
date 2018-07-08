@@ -8,7 +8,8 @@ module Language.Stmt
        , typename
        ) where
 
-import Universum hiding (Type, break, many, some, try)
+import Prelude (show)
+import Universum hiding (Type, break, many, show, some, try)
 
 import Text.Megaparsec
 
@@ -19,7 +20,11 @@ import Language.Types
 
 -- | Type names
 data Type = Bool' | Int'
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Generic)
+
+instance Show Type where
+    show Bool' = "bool"
+    show Int'  = "int"
 
 -- | Language statements
 data Stmt
@@ -32,6 +37,7 @@ data Stmt
     | Break
     | Return (Maybe Expr)
     | Call Ident [Expr]
+    | Atomic Stmt
     deriving (Eq, Ord, Show, Generic)
 
 assignment :: Parser Stmt
@@ -70,6 +76,9 @@ ifElse = (If <$ rword "if") <*> parens Expr.expr <*> block
 while :: Parser Stmt
 while = (While <$ rword "while") <*> parens Expr.expr <*> block
 
+atomic :: Parser Stmt
+atomic = (Atomic <$ rword "atomic") <*> block
+
 singleStmt :: Parser Stmt
 singleStmt =
         try declaration <* symbol ";"
@@ -79,6 +88,7 @@ singleStmt =
     <|> try call <* symbol ";"
     <|> try ifElse
     <|> try while
+    <|> try atomic
 
 stmt :: Parser Stmt
 stmt = flattenSeqs <$> some singleStmt
@@ -96,9 +106,7 @@ listToSeq [] = Skip
 listToSeq ls = foldr1 Seq ls
 
 seqToList :: Stmt -> [Stmt]
-seqToList s = case seqToList' s of
-    Nothing -> [s]
-    Just ss -> ss
+seqToList s = fromMaybe [s] $ seqToList' s
   where
     seqToList' :: Stmt -> Maybe [Stmt]
     seqToList' (Seq a b) = Just $ seqToList a ++ seqToList b

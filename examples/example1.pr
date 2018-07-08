@@ -10,4 +10,5 @@ start {
         fl = f(x, i) < 10;
         i = i + 1;
     }
+    return i;
 }

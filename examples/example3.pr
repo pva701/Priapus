@@ -2,9 +2,11 @@ fun int sum(int x, int y) {
     return x + y;
 }
 
+int result = 0;
+
 start {
   int i = 0, j = 0;
-  int n = 10, m = 20, result = 0;
+  int n = 10, m = 20;
  
   while (i < n) {
     while (j <= i) {
@@ -13,4 +15,6 @@ start {
     }
     i = i + 1;
   }
+
+  return result;
 }
