@@ -19,6 +19,7 @@ import Universum hiding (Type, show)
 import Control.Lens (makeLenses, uses, (%=), (+=), (-=), (.=))
 import Control.Monad.Except (catchError, throwError)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 
 import Data.List ((!!))
 import Language.Decl (Decl (..), Program (..))
@@ -32,18 +33,19 @@ fromJust (Just a) = a
 fromJust Nothing  = error "fromJust: Nothing"
 
 --------------------------------------------------------------
--- Interpreter basics
+-- Interpreter scope handling
 --------------------------------------------------------------
 
+-- | Interpreter errors
 data InterpretError
     = UndefinedVar !Ident
     | UndefinedFunc !Ident
     | UndeclaredVar !Ident
     | TypeMismatch !Type !Type
     | NoReturnVal !Ident
-    | InfiniteLoop
     | UnknownError !String
       -- * Special errors for control flow (way simpler than messing with ContT )00)
+    | InfiniteLoop
     | BreakError !StmtId !Int
     | ReturnError !StmtId !Int !(Maybe Value)
     deriving (Eq, Generic)
@@ -61,20 +63,21 @@ instance Show InterpretError where
         "', but got a value of type '" ++ show actual ++ "'"
     show (NoReturnVal f) =
         "Function '" ++ show f ++ "' was expected to return a value"
-    show InfiniteLoop =
-        "Infinite loop detected"
     show (UnknownError s) =
         "Unknown error: " ++ s
+    show InfiniteLoop = "<infinite-loop>"
     show BreakError{} = "<break-error>"
     show ReturnError{} = "<return-error>"
 
 instance Exception InterpretError
 
+-- | Necessary to be able to use '<|>' combinator
 instance {-# OVERLAPPING #-} Alternative (Either InterpretError) where
     a@(Right _) <|> _ = a
     Left _ <|> b = b
     empty = Left (UnknownError "")
 
+-- | A single scope
 type Scope = Map Ident (Type, Maybe Value)
 
 scopeLookup :: Ident -> Scope -> Either InterpretError Value
@@ -88,6 +91,7 @@ valueType :: Value -> Type
 valueType (Num _)     = Int'
 valueType (Boolean _) = Bool'
 
+-- | Assignment of value to an undeclared variable is prohibited
 scopeAssign :: Ident -> Value -> Scope -> Either InterpretError Scope
 scopeAssign x v e =
     maybeToRight (UndeclaredVar x) (M.lookup x e) >>=
@@ -95,25 +99,39 @@ scopeAssign x v e =
                then Right $ M.insert x (t, Just v) e
                else Left $ TypeMismatch (valueType v) t
 
+-- | A stack of scopes
 type Env = NonEmpty Scope
 
+-- | Looking for a variable down the stack
 envLookup :: Ident -> Env -> Either InterpretError Value
 envLookup x (g :| (l:ls)) = scopeLookup x l <|> envLookup x (g :| ls)
 envLookup x (g :| [])     = scopeLookup x g
 
+-- | Declare a variable in current local scope
 envDeclare :: Ident -> Type -> Env -> Env
 envDeclare x t (g :| (l:ls)) = g :| (scopeDeclare x t l : ls)
 envDeclare x t (g :| [])     = scopeDeclare x t g :| []
 
+-- | Assigns a value to a declared variable, looking it up in
+-- scope stack
 envAssign :: Ident -> Value -> Env -> Either InterpretError Env
 envAssign x v (g :| ls) =
-    (g :|) <$> scopeAssignLs x v ls <|>
-    (:| ls) <$> scopeAssign x v g
+    ((g :|) <$> scopeAssignLs x v ls) `orIfUndeclared`
+    ((:| ls) <$> scopeAssign x v g)
   where
+    scopeAssignLs :: Ident -> Value -> [Scope] -> Either InterpretError [Scope]
     scopeAssignLs x' _ [] = Left $ UndeclaredVar x'
     scopeAssignLs x' v' (e:es) =
-        (:es) <$> scopeAssign x' v' e <|>
-        (e:) <$> scopeAssignLs x' v' es
+        ((:es) <$> scopeAssign x' v' e) `orIfUndeclared`
+        ((e:) <$> scopeAssignLs x' v' es)
+
+    -- Cannot simply use '<|>', because this way if there's shadowed variable with
+    -- the same name and another type deeper in the stack and we go deeper on `TypeMismatch`,
+    -- this shadowed variable will be silently updated.
+    orIfUndeclared ::
+        Either InterpretError a -> Either InterpretError a -> Either InterpretError a
+    orIfUndeclared (Left (UndeclaredVar _)) b = b
+    orIfUndeclared a _                        = a
 
 envEnter :: Env -> Env
 envEnter (g :| ls) = g :| (mempty : ls)
@@ -129,27 +147,40 @@ envLeaveN :: Int -> Env -> Env
 envLeaveN 0 = identity
 envLeaveN d = (!! (d-1)) . iterate envLeave
 
+----------------------------------------------------------
+-- Interpreter stateful monad
+----------------------------------------------------------
+
+-- | Map of function declarations
 type Decls = Map Ident Decl
 
+-- | State is indentified by a current scope stack and
+-- id of instruction which caused the change in scope stack
 type StateId = (StmtId, Env)
 
 initStmtId :: StmtId
 initStmtId = StmtId (-1) (-1)
 
-type Automaton = Map StateId [StateId]
+-- | Automaton (Kripke structure) for a program
+type Automaton = Map StateId (Set StateId)
 
 addEdge :: StateId -> StateId -> Automaton -> Automaton
 addEdge from to = M.alter (add to) from
-  where add e (Just es) = Just $ e:es
-        add e Nothing   = Just [e]
+  where add e (Just es) = Just $ S.insert e es
+        add e Nothing   = Just $ S.singleton e
 
 hasEdge :: StateId -> StateId -> Automaton -> Bool
-hasEdge from to = maybe False (to `elem`) . M.lookup from
+hasEdge from to = maybe False (S.member to) . M.lookup from
 
+-- | Interpreter state
 data IState = IState
     { _iCurState  :: !StateId
+      -- ^ Current program state
     , _iAutomaton :: !Automaton
+      -- ^ Automaton which has been built so far
     , _iAtomicD   :: !Int
+      -- ^ If >0, then current code is executed atomically (all computations
+      -- represent a single edge in Kripke model).
     } deriving (Eq, Show, Generic)
 
 makeLenses ''IState
@@ -160,9 +191,12 @@ iEnv = iCurState . _2
 iStmtId :: Lens' IState StmtId
 iStmtId = iCurState . _1
 
+-- | Interpreter monad
 type Interpreter = StateT IState
     (ReaderT Decls (Either InterpretError))
 
+-- | Perform an action which changes the state with
+-- constructing the corresponding edge in Kripke graph
 transition :: StmtId -> Interpreter a -> Interpreter a
 transition sId action = do
     atomicD <- use iAtomicD
@@ -178,12 +212,16 @@ transition sId action = do
         iAutomaton %= addEdge initState resState
     return res
 
+-- | Perform an action atomically (there will be only
+-- one edge constructed even if there are transitions inside this action).
 atomic :: StmtId -> Interpreter a -> Interpreter a
 atomic sId action = transition sId $ do
     iAtomicD += 1
     res <- action
     iAtomicD -= 1
     return res
+
+-- Monadic scope manipulation
 
 depth :: Interpreter Int
 depth = uses iEnv envDepth
@@ -268,7 +306,6 @@ evalCall f args = do
     when (fmap valueType res /= dReturnType) $
         throwError $ TypeMismatch (valueType $ fromJust res) (fromJust dReturnType)
     return res
-  where
 
 -----------------------------------------------------------------
 -- Statements evaluation
@@ -321,7 +358,7 @@ runProgram Program {..} =
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
     initStateId = (initStmtId, initEnv)
-    initAutomaton = M.singleton initStateId []
+    initAutomaton = M.singleton initStateId mempty
     initState = IState initStateId initAutomaton 0
 
     -- Make the loop in final state of terminating program
