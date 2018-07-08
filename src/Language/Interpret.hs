@@ -198,13 +198,13 @@ evalCall f args = do
 -----------------------------------------------------------------
 
 evalStmt :: Stmt -> Interpreter (Maybe Value)
-evalStmt (Stmt.Seq a b)     = evalStmt a >> evalStmt b
-evalStmt (Stmt.Atomic s)    = evalStmt s
-evalStmt (Stmt.Skip)        = pure Nothing
-evalStmt (Stmt.Declare t x) = Nothing <$ declare x t
-evalStmt (Stmt.Assign x e)  = evalExpr e >>= \v -> Just v <$ assign x v
+evalStmt (Stmt.Seq a b)      = evalStmt a >> evalStmt b
+evalStmt (Stmt.Atomic _ s)   = evalAtomic s
+evalStmt Stmt.Skip           = pure Nothing
+evalStmt (Stmt.Declare t x)  = Nothing <$ declare x t
+evalStmt (Stmt.Assign _ x e) = evalExpr e >>= \v -> Just v <$ assign x v
 evalStmt (Stmt.If cond a b) =
-    ifM (evalExpr cond >>= getBool) (evalStmt a) (evalStmt b)
+    ifM (evalExpr cond >>= getBool) (evalScope a) (evalScope b)
 evalStmt (Stmt.While cond s) =
     let loop = ifM (evalExpr cond >>= getBool) (evalStmt s >> loop) (pure Nothing)
         catchBreak BreakError = pure Nothing
@@ -214,6 +214,17 @@ evalStmt Stmt.Break = throwError BreakError
 evalStmt (Stmt.Return me) =
     traverse evalExpr me >>= throwError . ReturnError
 evalStmt (Stmt.Call f args) = mapM evalExpr args >>= evalCall f
+
+evalScope :: Stmt -> Interpreter (Maybe Value)
+evalScope s = do
+    enter
+    res <- evalStmt s
+    leave
+    return res
+
+-- | Later it would create one edge in automata instead of many
+evalAtomic :: Stmt -> Interpreter (Maybe Value)
+evalAtomic = evalStmt
 
 evalFuncBody :: Stmt -> Interpreter (Maybe Value)
 evalFuncBody st = evalStmt st `catchError` catchReturn

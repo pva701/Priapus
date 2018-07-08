@@ -12,6 +12,7 @@ import Prelude (show)
 import Universum hiding (Type, break, many, show, some, try)
 
 import Text.Megaparsec
+import Text.Megaparsec.Pos (SourcePos (..), unPos)
 
 import Language.Expr (Expr, Ident (..))
 import qualified Language.Expr as Expr
@@ -26,22 +27,31 @@ instance Show Type where
     show Bool' = "bool"
     show Int'  = "int"
 
+-- | Statement id (basically simplified source position)
+data StmtId = StmtId !Int !Int
+    deriving (Eq, Ord, Show, Generic)
+
 -- | Language statements
 data Stmt
     = Seq Stmt Stmt
     | Skip
     | Declare Type Ident
-    | Assign Ident Expr
+    | Assign StmtId Ident Expr
     | If Expr Stmt Stmt
     | While Expr Stmt
     | Break
     | Return (Maybe Expr)
     | Call Ident [Expr]
-    | Atomic Stmt
+    | Atomic StmtId Stmt
     deriving (Eq, Ord, Show, Generic)
 
+stmtId :: Parser StmtId
+stmtId = do
+    SourcePos {..} <- getPosition
+    return $ StmtId (unPos sourceLine) (unPos sourceColumn)
+
 assignment :: Parser Stmt
-assignment = Assign <$> (Expr.ident <* str "=") <*> Expr.expr
+assignment = Assign <$> stmtId <*> (Expr.ident <* str "=") <*> Expr.expr
 
 typename :: Parser Type
 typename = Bool' <$ rword "bool" <|> Int' <$ rword "int"
@@ -51,9 +61,10 @@ declaration = do
     t <- typename
     let onlyDec = Declare t <$> Expr.ident
         decAssign = do
+            sId <- stmtId
             x <- Expr.ident <* str "="
             v <- Expr.expr
-            pure $ Seq (Declare t x) (Assign x v)
+            pure $ Seq (Declare t x) (Assign sId x v)
     flattenSeqs <$> (try decAssign <|> onlyDec) `sepBy` str ","
 
 break :: Parser Stmt
@@ -77,7 +88,7 @@ while :: Parser Stmt
 while = (While <$ rword "while") <*> parens Expr.expr <*> block
 
 atomic :: Parser Stmt
-atomic = (Atomic <$ rword "atomic") <*> block
+atomic = (Atomic <$> stmtId <* rword "atomic") <*> block
 
 singleStmt :: Parser Stmt
 singleStmt =
