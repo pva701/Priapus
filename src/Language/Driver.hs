@@ -5,14 +5,14 @@ import Universum
 
 import Language.Decl (parseProgram)
 import Language.Expr (Value (..))
-import Language.Interpret (Env, runProgram)
+import Language.Interpret (IState, runProgram)
 
-runProgramFull :: FilePath -> Text -> Either SomeException (Maybe Value, Env)
+runProgramFull :: FilePath -> Text -> Either SomeException (Maybe Value, IState)
 runProgramFull file txt =
     first toException (parseProgram file txt) >>=
     first toException . runProgram
 
-runProgramFile :: FilePath -> IO (Maybe Value, Env)
+runProgramFile :: FilePath -> IO (Maybe Value, IState)
 runProgramFile file = do
     txt <- readFile file
     either throwM pure $ runProgramFull file txt

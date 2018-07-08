@@ -4,6 +4,10 @@
 module Language.Interpret
        ( InterpretError (..)
        , Env
+       , Automaton
+       , IState (..)
+       , iCurState
+       , iAutomaton
        , evalExpr
        , evalStmt
        , runProgram
@@ -14,13 +18,14 @@ module Language.Interpret
 import Prelude (show)
 import Universum hiding (Type, show)
 
-import Control.Monad.Except (catchError, liftEither, throwError)
+import Control.Lens (makeLenses, (%=), (.=))
+import Control.Monad.Except (catchError, throwError)
 import qualified Data.Map.Strict as M
 
 import Language.Decl (Decl (..), Program (..))
 import Language.Expr (Expr, Ident, Op (..), Value (..))
 import qualified Language.Expr as Expr
-import Language.Stmt (Stmt, Type (..))
+import Language.Stmt (Stmt, StmtId (..), Type (..))
 import qualified Language.Stmt as Stmt
 
 fromJust :: Maybe a -> a
@@ -117,22 +122,40 @@ envLeave (_ :| [])     = error "impossible to leave the global scope"
 
 type Decls = Map Ident Decl
 
-type Interpreter = StateT Env (ReaderT Decls (Either InterpretError))
+type StateId = (StmtId, Env)
+
+initStmtId :: StmtId
+initStmtId = StmtId (-1) (-1)
+
+type Automaton = Map StateId [StateId]
+
+data IState = IState
+    { _iCurState  :: !StateId
+    , _iAutomaton :: !Automaton
+    } deriving (Eq, Show, Generic)
+
+makeLenses ''IState
+
+iEnv :: Lens' IState Env
+iEnv = iCurState . _2
+
+type Interpreter = StateT IState
+    (ReaderT Decls (Either InterpretError))
 
 lookup :: Ident -> Interpreter Value
-lookup x = get >>= liftEither . envLookup x
+lookup x = use iEnv >>= either throwError pure . envLookup x
 
 declare :: Ident -> Type -> Interpreter ()
-declare x = modify' . envDeclare x
+declare x t = iEnv %= envDeclare x t
 
 assign :: Ident -> Value -> Interpreter ()
-assign x v = get >>= either throwError put . envAssign x v
+assign x v = use iEnv >>= either throwError (iEnv .=) . envAssign x v
 
 enter :: Interpreter ()
-enter = modify' envEnter
+enter = iEnv %= envEnter
 
 leave :: Interpreter ()
-leave = modify' envLeave
+leave = iEnv %= envLeave
 
 -------------------------------------------------------------
 -- Expressions evaluation
@@ -201,24 +224,24 @@ evalStmt :: Stmt -> Interpreter (Maybe Value)
 evalStmt (Stmt.Seq a b)      = evalStmt a >> evalStmt b
 evalStmt (Stmt.Atomic _ s)   = evalAtomic s
 evalStmt Stmt.Skip           = pure Nothing
-evalStmt (Stmt.Declare t x)  = Nothing <$ declare x t
+evalStmt (Stmt.Declare t _ x)  = Nothing <$ declare x t
 evalStmt (Stmt.Assign _ x e) = evalExpr e >>= \v -> Just v <$ assign x v
 evalStmt (Stmt.If cond a b) =
     ifM (evalExpr cond >>= getBool) (evalScope a) (evalScope b)
 evalStmt (Stmt.While cond s) =
-    let loop = ifM (evalExpr cond >>= getBool) (evalStmt s >> loop) (pure Nothing)
+    let loop = ifM (evalExpr cond >>= getBool) (evalScope s >> loop) (pure Nothing)
         catchBreak BreakError = pure Nothing
         catchBreak err        = throwError err
     in loop `catchError` catchBreak
-evalStmt Stmt.Break = throwError BreakError
-evalStmt (Stmt.Return me) =
+evalStmt (Stmt.Break _) = throwError BreakError
+evalStmt (Stmt.Return _ me) =
     traverse evalExpr me >>= throwError . ReturnError
 evalStmt (Stmt.Call f args) = mapM evalExpr args >>= evalCall f
 
-evalScope :: Stmt -> Interpreter (Maybe Value)
-evalScope s = do
+evalScope :: Stmt.Scope -> Interpreter (Maybe Value)
+evalScope Stmt.Scope {..} = do
     enter
-    res <- evalStmt s
+    res <- evalStmt scopeBody
     leave
     return res
 
@@ -235,15 +258,18 @@ evalFuncBody st = evalStmt st `catchError` catchReturn
 -- Program evaluation
 ------------------------------------------------------------------
 
-runProgram :: Program -> Either InterpretError (Maybe Value, Env)
+runProgram :: Program -> Either InterpretError (Maybe Value, IState)
 runProgram Program {..} =
-    usingReaderT funcMap $ usingStateT initEnv $ evalFuncBody progMain
+    usingReaderT funcMap $ usingStateT initState $ evalFuncBody progMain
   where
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []
+    initStateId = (initStmtId, initEnv)
+    initAutomaton = M.singleton initStateId []
+    initState = IState initStateId initAutomaton
 
 evalProgram :: Program -> Either InterpretError (Maybe Value)
 evalProgram = fmap fst . runProgram
 
-execProgram :: Program -> Either InterpretError Env
+execProgram :: Program -> Either InterpretError IState
 execProgram = fmap snd . runProgram

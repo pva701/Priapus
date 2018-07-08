@@ -35,6 +35,7 @@ library
     , text
     , megaparsec
     , mtl
+    , lens
   exposed-modules:
                   Lib
                   LTL
