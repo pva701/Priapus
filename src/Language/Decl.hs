@@ -1,7 +1,12 @@
 
 -- | Functions declarations parser
 
-module Language.Decl where
+module Language.Decl
+       ( Decl (..)
+       , Program (..)
+       , program
+       , parseProgram
+       ) where
 
 import Universum hiding (Type, many)
 
@@ -46,3 +51,6 @@ mainBody = rword "start" *> parens' "{" "}" Stmt.stmt
 
 program :: Parser Program
 program = Program <$> many declaration <*> mainBody
+
+parseProgram :: String -> Text -> Either PError Program
+parseProgram = parse program

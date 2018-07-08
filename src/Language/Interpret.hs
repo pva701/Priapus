@@ -4,6 +4,9 @@
 module Language.Interpret
        ( evalExpr
        , evalStmt
+       , runProgram
+       , evalProgram
+       , execProgram
        ) where
 
 import Universum hiding (Type)
@@ -11,7 +14,7 @@ import Universum hiding (Type)
 import Control.Monad.Except (catchError, liftEither, throwError)
 import qualified Data.Map.Strict as M
 
-import Language.Decl (Decl (..), Program (..))
+import Language.Decl (Decl (..), Program (..), parseProgram)
 import Language.Expr (Expr, Ident, Op (..), Value (..))
 import qualified Language.Expr as Expr
 import Language.Stmt (Stmt, Type (..))
@@ -66,6 +69,9 @@ scopeAssign x v e =
 
 type Env = NonEmpty Scope
 
+emptyEnv :: Env
+emptyEnv = mempty :| []
+
 envLookup :: Ident -> Env -> Either InterpretError Value
 envLookup x (g :| (l:ls)) = scopeLookup x l <|> envLookup x (g :| ls)
 envLookup x (g :| [])     = scopeLookup x g
@@ -88,7 +94,7 @@ envEnter :: Env -> Env
 envEnter (g :| ls) = g :| (mempty : ls)
 
 envLeave :: Env -> Env
-envLeave (g :| (l:ls)) = g :| ls
+envLeave (g :| (_:ls)) = g :| ls
 envLeave (_ :| [])     = error "impossible to leave the global scope"
 
 type Decls = Map Ident Decl
@@ -194,3 +200,19 @@ evalFuncBody :: Stmt -> Interpreter (Maybe Value)
 evalFuncBody st = evalStmt st `catchError` catchReturn
   where catchReturn (ReturnError me) = pure me
         catchReturn err              = throwError err
+
+------------------------------------------------------------------
+-- Program evaluation
+------------------------------------------------------------------
+
+runProgram :: Program -> Either InterpretError (Maybe Value, Env)
+runProgram Program {..} =
+    usingReaderT funcMap $ usingStateT emptyEnv $ evalFuncBody progMain
+  where
+    funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
+
+evalProgram :: Program -> Either InterpretError (Maybe Value)
+evalProgram = fmap fst . runProgram
+
+execProgram :: Program -> Either InterpretError Env
+execProgram = fmap snd . runProgram
