@@ -52,6 +52,11 @@ data Op
     | And | Or                             -- bool
     deriving (Eq, Ord, Show, Generic)
 
+instance Hashable Op
+instance Hashable Expr
+instance Hashable Ident
+instance Hashable Value
+
 -- | Reserved words (cannot be identifiers)
 reserved :: Set Text
 reserved = S.fromList

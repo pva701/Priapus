@@ -59,7 +59,8 @@ addKripkeTransition vs s1 s2 trs = do
 -- | Given a bindings from propositional variables to expressions,
 -- construct a Buchi automaton over 'SatisfiedVars' alphabet
 evalToBuchi
-    :: VarMapping -> EvalAutomaton
+    :: VarMapping
+    -> EvalAutomaton
     -> Either InterpretError (BuchiAutomaton SatisfiedVars StateId)
 evalToBuchi vs EvalAutomaton {..} = do
     let initStateId = (StmtId (-1) (-1), mempty :| [])

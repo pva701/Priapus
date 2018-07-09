@@ -1,0 +1,3 @@
+fl -> F (not fl)
+(i < 2) U (not fl)
+(i <= 2) U (not fl)

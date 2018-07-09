@@ -32,12 +32,12 @@ library
       base >=4.7 && <5
     , containers >= 0.5 
     , universum 
+    , hashable
     , text
     , megaparsec
     , mtl
     , lens
   exposed-modules:
-                  Lib
                   LTL
                   Buchi
                   Conversion

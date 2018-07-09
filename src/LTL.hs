@@ -5,6 +5,7 @@ module LTL
 
        , ltlToBuchiAutomaton
        , ltlToGBA
+       , propositionals
 
        -- for testing
        , closure
@@ -12,23 +13,25 @@ module LTL
        , allMaxConsistent
        ) where
 
-import Universum hiding (many, try)
+import           Universum            hiding (many, try)
 
-import Data.List (nub)
-import qualified Data.Map as M
-import qualified Data.Set as S
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Expr
+import           Data.Hashable        (Hashable (..))
+import           Data.List            (nub)
+import qualified Data.Map             as M
+import qualified Data.Set             as S
+import           Text.Megaparsec      hiding (State)
+import           Text.Megaparsec.Char
+import           Text.Megaparsec.Expr
 
-import Buchi (BuchiAutomaton (..), GenBuchiAutomaton (..), Layer, createTransitions,
-              gbaToBuchiAutomaton)
-import Language.Expr (Ident (..))
-import Language.Lexer
-import Language.Types
+import           Buchi                (BuchiAutomaton (..),
+                                       GenBuchiAutomaton (..), Layer,
+                                       createTransitions, gbaToBuchiAutomaton)
+import qualified Language.Expr        as Lg
+import           Language.Lexer
+import           Language.Types
 
 data LTL
-    = Var Ident
+    = Var Lg.Ident Lg.Expr
     | BConst Bool
     | Not LTL
     | XOp LTL
@@ -50,9 +53,9 @@ neg a          = Not a
 
 negNormalForm :: LTL -> LTL
 negNormalForm (Not (Not a))    = negNormalForm a
-negNormalForm v@(Var _)        = v
+negNormalForm v@(Var _ _)      = v
 negNormalForm c@(BConst _)     = c
-negNormalForm x@(Not (Var _))  = x
+negNormalForm x@(Not (Var _ _))  = x
 negNormalForm (Not (BConst v)) = BConst (not v)
 negNormalForm (Not (Or a b))   = negNormalForm (Not a) `And` negNormalForm (Not b)
 negNormalForm (Not (And a b))  = negNormalForm (Not a) `Or` negNormalForm (Not b)
@@ -64,6 +67,12 @@ negNormalForm (Or a b)         = negNormalForm a `Or` negNormalForm b
 negNormalForm (And a b)        = negNormalForm a `And` negNormalForm b
 negNormalForm (UOp a b)        = negNormalForm a `UOp` negNormalForm b
 negNormalForm (ROp a b)        = negNormalForm a `ROp` negNormalForm b
+
+propositionals :: LTL -> [(Lg.Ident, Lg.Expr)]
+propositionals (Var i ex) = [(i, ex)]
+propositionals (Not e) = propositionals e
+propositionals (XOp e) = propositionals e
+propositionals v = propositionals (lOp v) ++ propositionals (rOp v)
 
 data Subexprs = Subexprs
     { cl      :: Set LTL -- corresponding ordered set
@@ -84,7 +93,7 @@ closure f =
     (f', fromOrdered ordered')
   where
     buildCL :: LTL -> [LTL]
-    buildCL p@(Var _)    = [neg p, p]
+    buildCL p@(Var _ _)  = [neg p, p]
     buildCL c@(BConst _) = [neg c, c]
     buildCL e@(Not a)    = e : buildCL a
     buildCL e@(XOp a)    = neg e : e : buildCL a
@@ -99,7 +108,7 @@ checkClosure (f, Subexprs cl ls) = do
         case f1 of
             Not    _ -> pass
             BConst _ -> pass
-            Var    _ -> pass
+            Var  _ _ -> pass
             XOp f2   -> checkSubterm f1 f2
             op       -> checkSubterm f1 (lOp op) >> checkSubterm f1 (rOp op)
   where
@@ -118,7 +127,7 @@ allMaxConsistent (Subexprs _ ls) = execState (gen (S.singleton true, one true) l
     gen :: (Set LTL, [LTL]) -> [LTL] -> State MaxConsistents ()
     gen (s, l) [] = modify (Subexprs s (reverse l) :)
     gen p (BConst _ : xs)  = gen p xs
-    gen p xs@(Var _ : _)   = goOneOf p xs
+    gen p xs@(Var _ _ : _)   = goOneOf p xs
     gen p@(s, _) (x@(Not e) : xs)
         | S.member e s     = gen p xs
         | otherwise        = gen (addExp p x) xs
@@ -137,14 +146,14 @@ allMaxConsistent (Subexprs _ ls) = execState (gen (S.singleton true, one true) l
         gen (addExp p x) xs
         gen p xs
 
-newtype SatisfiedVars = SatisfiedVars (Set Ident)
+newtype SatisfiedVars = SatisfiedVars (Set Lg.Ident)
     deriving (Eq, Ord, Show)
 
-subexprsToSatisfiedVars :: Subexprs -> SatisfiedVars
-subexprsToSatisfiedVars = SatisfiedVars . S.fromList . mapMaybe toSatisfiedVar . ordered
+subexprsGetSatisfiedVars :: Subexprs -> SatisfiedVars
+subexprsGetSatisfiedVars = SatisfiedVars . S.fromList . mapMaybe toSatisfiedVar . ordered
   where
-    toSatisfiedVar (Var x) = Just x
-    toSatisfiedVar _       = Nothing
+    toSatisfiedVar (Var x _) = Just x
+    toSatisfiedVar _         = Nothing
 
 ltlToGBA :: LTL -> GenBuchiAutomaton SatisfiedVars Subexprs
 ltlToGBA f' = do
@@ -165,12 +174,12 @@ ltlToGBA f' = do
 
     let trans1 = createTransitions $ do
           m2 <- nodes
-          let a = subexprsToSatisfiedVars m2
+          let a = subexprsGetSatisfiedVars m2
           m1 <- nodes
           guard (any (ifAddEdge m1 m2) (toList $ cl m1))
           pure (m1, a, m2)
     let trans2 = M.unionsWith (M.unionWith (<>)) $
-                     map (\v -> M.singleton initNode (M.singleton (subexprsToSatisfiedVars v) (S.singleton v)))
+                     map (\v -> M.singleton initNode (M.singleton (subexprsGetSatisfiedVars v) (S.singleton v)))
                          (filter (S.member f . cl) nodes)
     GenBuchiAutomaton (trans1 <> trans2) (S.singleton initNode) (S.fromList finals)
 
@@ -204,15 +213,21 @@ operators =
     gop a = Not $ fop $ Not a
     impl a b = Not a `Or` b
 
-rws :: [Text] -- list of reserved words
-rws = ["true", "false", "not", "X", "U", "R", "F", "G"]
+-- rws :: [Text] -- list of reserved words
+-- rws = ["true", "false", "not", "X", "U", "R", "F", "G"]
 
-ident :: Parser Ident
-ident = Ident <$> identifier (`elem` rws)
+-- ident :: Parser Lg.Ident
+-- ident = Lg.Ident <$> identifier (`elem` rws)
 
 term :: Parser LTL
 term =
       parens ltlExpr
   <|> (BConst True  <$ rword "true")
   <|> (BConst False <$ rword "false")
-  <|> (Var <$> ident)
+  <|> (uncurry Var <$> parseExpr)
+  where
+    parseExpr = do
+        e <- Lg.expr
+        case e of
+            Lg.Var ident -> pure (ident, e)
+            _            -> pure (Lg.Ident $ "tmp" <> show (hash e), e)

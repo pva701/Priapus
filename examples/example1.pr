@@ -2,10 +2,10 @@ fun int f(int x, int y) {
     return x + y + 3;
 }
 
+bool fl = true;
+
 start {
     int x = 5, y = 10, i = 0;
-    bool fl = true;
-
     while (fl) {
         fl = f(x, i) < 10;
         i = i + 1;
