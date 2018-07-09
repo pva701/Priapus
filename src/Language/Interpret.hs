@@ -6,7 +6,7 @@ module Language.Interpret
        , Interpreter
        , Env
        , StateId
-       , EvalAutomaton
+       , EvalAutomaton (..)
        , eaTransitions
        , eaInit
        , IState (..)

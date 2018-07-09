@@ -11,15 +11,15 @@ import qualified Data.Set as S
 import Buchi (BuchiAutomaton (..), Transitions)
 import Language.Expr (Expr, Ident (..), Value (..))
 import Language.Interpret (Env, EvalAutomaton (..), IState (..), InterpretError (..), StateId,
-                           evalExpr, execProgram)
+                           evalExpr)
 import Language.Stmt (StmtId (..), Type (..))
 import LTL (SatisfiedVars (..))
 
 -- | Function calls in considered formulas are prohibited,
 -- so we don't bother with reader state.
 evalExprInEnv :: Expr -> Env -> Either InterpretError Value
-evalExprInEnv e env = usingReaderT mempty . usingStateT initState $
-    evalExpr e
+evalExprInEnv e env = usingReaderT mempty $
+    evalStateT (evalExpr e) initState
   where
     initStateId = (StmtId (-1) (-1), env)
     initAutomaton = EvalAutomaton mempty mempty
@@ -31,19 +31,19 @@ type VarMapping = [(Ident, Expr)]
 -- propositional variables which are satisfied in this env
 satisfiedInEnv :: Env -> VarMapping -> Either InterpretError SatisfiedVars
 satisfiedInEnv env = fmap SatisfiedVars . foldM checkVar mempty
-  where checkVar vs (v, e) = case evalExprInEnv e env of
-            Left (UndefinedVar _) -> Right vs
+  where checkVar xs (x, e) = case evalExprInEnv e env of
+            Left (UndefinedVar _) -> Right xs
             Left err              -> Left err
             Right v -> case v of
-                Boolean True  -> Right $ S.insert v vs
-                Boolean False -> Right vs
-                Num _         -> Left $ TypeMismatch (valueType v) Bool'
+                Boolean True  -> Right $ S.insert x xs
+                Boolean False -> Right xs
+                Num _         -> Left $ TypeMismatch Int' Bool'
 
 addTransition
     :: forall alph state. (Ord alph, Ord state)
     => state -> alph -> state -> Transitions alph state -> Transitions alph state
 addTransition from sym to = M.alter addM from
-  where addM (Just m) = Just $ M.alter addS sym
+  where addM (Just m) = Just $ M.alter addS sym m
         addM Nothing  = Just $ M.singleton sym $ S.singleton to
         addS (Just s) = Just $ S.insert to s
         addS Nothing  = Just $ S.singleton to
@@ -52,9 +52,9 @@ addKripkeTransition
     :: VarMapping -> StateId -> StateId
     -> Transitions SatisfiedVars StateId
     -> Either InterpretError (Transitions SatisfiedVars StateId)
-addKripkeTransition vs s1 s2 = do
+addKripkeTransition vs s1 s2 trs = do
     sym <- satisfiedInEnv (snd s2) vs
-    addTransition s1 sym s2
+    pure $ addTransition s1 sym s2 trs
 
 -- | Given a bindings from propositional variables to expressions,
 -- construct a Buchi automaton over 'SatisfiedVars' alphabet
@@ -69,7 +69,7 @@ evalToBuchi vs EvalAutomaton {..} = do
         rootTrs = M.singleton initStateId mempty
 
     initTrs <- foldM (flip $ addKripkeTransition vs initStateId) rootTrs eInits
-    let visited = S.singleton initStateId
+    let initVisited = S.singleton initStateId
 
         dfs :: (Set StateId, Transitions SatisfiedVars StateId)
             -> StateId
@@ -81,6 +81,6 @@ evalToBuchi vs EvalAutomaton {..} = do
             trans' <- foldM (flip $ addKripkeTransition vs sId) trans neighbors
             foldM dfs (visited', trans') newNeighbors
 
-    (baFinal, baTransitions) <- foldM dfs (visited, initTrs) eInits
+    (baFinal, baTransitions) <- foldM dfs (initVisited, initTrs) eInits
     let baInit = S.singleton initStateId
     return BuchiAutomaton {..}
