@@ -106,6 +106,10 @@ scopeAssign x v e =
 -- | A stack of scopes
 type Env = NonEmpty Scope
 
+instance {-# OVERLAPPING #-}
+     Show (NonEmpty Scope) where
+    show = show . toList
+
 -- | Looking for a variable down the stack
 envLookup :: Ident -> Env -> Either InterpretError Value
 envLookup x (g :| (l:ls)) = scopeLookup x l <|> envLookup x (g :| ls)
@@ -202,8 +206,7 @@ iStmtId :: Lens' IState StmtId
 iStmtId = iCurState . _1
 
 -- | Interpreter monad
-type Interpreter = StateT IState
-    (ReaderT Decls (Either InterpretError))
+type Interpreter = ExceptT InterpretError (StateT IState (Reader Decls))
 
 -- | Perform an action which changes the state with
 -- constructing the corresponding edge in Kripke graph
@@ -353,17 +356,20 @@ evalScope Stmt.Scope {..} = do
 
 evalFuncBody :: Int -> Stmt -> Interpreter (Maybe Value)
 evalFuncBody dp st = evalStmt st `catchError` catchReturn dp
-  where catchReturn d (ReturnError sId d' mv) = leaveN sId (d' - d) >> pure mv
-        catchReturn _ err                     = throwError err
+  where
+    catchReturn d (ReturnError sId d' mv) = leaveN sId (d' - d) >> pure mv
+    catchReturn _ err                     = throwError err
 
 ------------------------------------------------------------------
 -- Program evaluation
 ------------------------------------------------------------------
 
 runProgram :: Program -> Either InterpretError (Maybe Value, IState)
-runProgram Program {..} =
-    usingReaderT funcMap $ usingStateT initState $
-    (evalFuncBody 1 progMain <* finalLoop) `catchError` catchLoop
+runProgram Program {..} = do
+    let action = (evalFuncBody 1 progMain <* finalLoop) `catchError` catchLoop
+    case usingReader funcMap $ usingStateT initState $ runExceptT action of
+        (Left e, _)  -> Left e
+        (Right v, ist) -> Right (v, ist)
   where
     funcMap = foldl' (\m d -> M.insert (dName d) d m) mempty progFuncs
     initEnv = foldl' (\m (t, x, v) -> M.insert x (t, v) m) mempty progVars :| []

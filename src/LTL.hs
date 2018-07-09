@@ -9,11 +9,11 @@ module LTL
 
        -- for testing
        , closure
-       , checkClosure
        , allMaxConsistent
        ) where
 
-import           Universum            hiding (many, try)
+import           Universum            hiding (many, try, show)
+import           Prelude (show)
 
 import           Data.Hashable        (Hashable (..))
 import           Data.List            (nub)
@@ -39,7 +39,24 @@ data LTL
     | And {lOp :: LTL, rOp :: LTL}
     | UOp {lOp :: LTL, rOp :: LTL}
     | ROp {lOp :: LTL, rOp :: LTL}
-    deriving (Show, Generic, Eq, Ord)
+    deriving (Generic, Eq, Ord)
+
+showWithBr :: LTL -> String
+showWithBr x@(Var _ _) = show x
+showWithBr x@(BConst _) = show x
+showWithBr x@(XOp _) = show x
+showWithBr x = show x
+
+instance Show LTL where
+    show (Var _ ex) = show ex
+    show (BConst True) = "true"
+    show (BConst False) = "false"
+    show (Not x) = "not " ++ showWithBr x
+    show (XOp x) = "X " ++ showWithBr x
+    show (Or e1 e2) = showWithBr e1 ++ " || " ++ showWithBr e2
+    show (And e1 e2) = showWithBr e1 ++ " && " ++ showWithBr e2
+    show (UOp e1 e2) = showWithBr e1 ++ " U " ++ showWithBr e2
+    show (ROp e1 e2) = showWithBr e1 ++ " R " ++ showWithBr e2
 
 true :: LTL
 true = BConst True
@@ -68,16 +85,24 @@ negNormalForm (And a b)        = negNormalForm a `And` negNormalForm b
 negNormalForm (UOp a b)        = negNormalForm a `UOp` negNormalForm b
 negNormalForm (ROp a b)        = negNormalForm a `ROp` negNormalForm b
 
+
 propositionals :: LTL -> [(Lg.Ident, Lg.Expr)]
-propositionals (Var i ex) = [(i, ex)]
-propositionals (Not e) = propositionals e
-propositionals (XOp e) = propositionals e
-propositionals v = propositionals (lOp v) ++ propositionals (rOp v)
+propositionals = S.toList . S.fromList . propositionalsDo
+  where
+    propositionalsDo :: LTL -> [(Lg.Ident, Lg.Expr)]
+    propositionalsDo (Var i ex) = [(i, ex)]
+    propositionalsDo (Not e) = propositionalsDo e
+    propositionalsDo (XOp e) = propositionalsDo e
+    propositionalsDo (BConst _) = []
+    propositionalsDo v = propositionalsDo (lOp v) ++ propositionalsDo (rOp v)
 
 data Subexprs = Subexprs
     { cl      :: Set LTL -- corresponding ordered set
     , ordered :: [LTL]   -- for each i: all subexpressions of ordered[i] occur earlier in list
-    } deriving (Eq, Ord, Show)
+    } deriving (Eq, Ord)
+
+instance Show Subexprs where
+    show (Subexprs cl _) = "{" ++ intercalate "," (map show $ toList cl) ++ "}"
 
 fromOrdered :: [LTL] -> Subexprs
 fromOrdered ls =
@@ -99,24 +124,6 @@ closure f =
     buildCL e@(XOp a)    = neg e : e : buildCL a
     buildCL e            = neg e : e : buildCL (lOp e) ++ buildCL (rOp e)
 
-checkClosure :: Closure -> Either Text ()
-checkClosure (f, Subexprs cl ls) = do
-    guardEi (true `S.member` cl) $ "true doesn't belong to closure"
-    guardEi (f `S.member` cl) $ "f doesn't belong to closure"
-    forM_ ls $ \f1 -> do
-        checkSubterm f1 (neg f1)
-        case f1 of
-            Not    _ -> pass
-            BConst _ -> pass
-            Var  _ _ -> pass
-            XOp f2   -> checkSubterm f1 f2
-            op       -> checkSubterm f1 (lOp op) >> checkSubterm f1 (rOp op)
-  where
-    checkSubterm f1 fsub =
-        guardEi (fsub `S.member` cl) $ show f1 <> " belongs to closure, but " <> show fsub <> " no"
-    guardEi False e = Left e
-    guardEi True _  = Right ()
-
 type MaxConsistents = [Subexprs]
 
 allMaxConsistent :: Subexprs -> MaxConsistents
@@ -132,12 +139,18 @@ allMaxConsistent (Subexprs _ ls) = execState (gen (S.singleton true, one true) l
         | S.member e s     = gen p xs
         | otherwise        = gen (addExp p x) xs
     gen p xs@(XOp _ : _)   = goOneOf p xs
-    gen p xs@(UOp _ _ : _) = goOneOf p xs
-    gen p xs@(ROp _ _ : _) = goOneOf p xs
+    gen p@(s, _) xx@(x@(UOp a b) : xs)
+        | S.member b s     = gen (addExp p x) xs
+        | S.notMember a s  = gen p xs
+        | otherwise        = goOneOf p xx
+    gen p@(s, _) xx@(x@(ROp a b) : xs)
+        | S.member (a `And` b) s = gen (addExp p x) xs
+        | S.notMember b s        = gen p xs
+        | otherwise              = goOneOf p xx
     gen p@(s, _) (e@(Or a b) : xs)
         | S.member a s || S.member b s = gen (addExp p e) xs
         | otherwise                    = gen p xs
-    gen p@(s, _) xs@(e@(And a b) : _)
+    gen p@(s, _) (e@(And a b) : xs)
         | S.member a s && S.member b s = gen (addExp p e) xs
         | otherwise                    = gen p xs
 
@@ -156,32 +169,39 @@ subexprsGetSatisfiedVars = SatisfiedVars . S.fromList . mapMaybe toSatisfiedVar 
     toSatisfiedVar _         = Nothing
 
 ltlToGBA :: LTL -> GenBuchiAutomaton SatisfiedVars Subexprs
-ltlToGBA f' = do
+ltlToGBA f' = runIdentity $ do
     let (f, subexprs) = closure f'
     let nodes = allMaxConsistent subexprs
     let initNode = Subexprs mempty []
 
-    let isUntil (UOp _ _) = True
-        isUntil _         = False
-    let untils = filter isUntil (ordered subexprs)
-    let finals = flip map untils $ \u@(UOp _ f2) ->
-            S.fromList $ filter (\(Subexprs s _) -> f2 `S.member` s || u `S.notMember` s) nodes
+    let isUorR (UOp _ _) = True
+        isUorR (ROp _ _) = True
+        isUorR _         = False
+    let untils = filter isUorR (ordered subexprs)
+    -- TODO ADD ROp
+    let finals = flip map untils $ \case
+            u@(UOp _ f2)  -> S.fromList $ filter (\(Subexprs s _) -> f2 `S.member` s || u `S.notMember` s) nodes
+            r@(ROp f1 f2) -> S.fromList $ filter (\(Subexprs s _) -> (f1 `S.member` s && f2 `S.member` s) || r `S.notMember` s) nodes
+            _             -> error "unexpected operator"
 
-    let ifAddEdge _ m2 (XOp f1)       = f1 `S.member` cl m2
-        ifAddEdge m1 m2 e@(UOp f1 f2) = f2 `S.member` cl m1 || f1 `S.member` cl m1 && e `S.member` cl m2
-        ifAddEdge m1 m2 e@(ROp f1 f2) = (And f1 f2) `S.member` cl m1 || f2 `S.member` cl m1 && e `S.member` cl m2
-        ifAddEdge _ _ _               = False
+    let ifAddEdge _ m2 (XOp f1)             = f1 `S.member` cl m2
+        ifAddEdge _ m2 (Not (XOp f1))       = not (f1 `S.member` cl m2)
+        ifAddEdge m1 m2 e@(UOp f1 f2)       = f2 `S.member` cl m1 || f1 `S.member` cl m1 && e `S.member` cl m2
+        ifAddEdge m1 m2 e@(Not (UOp f1 f2)) = not $ f2 `S.member` cl m1 || f1 `S.member` cl m1 && e `S.member` cl m2
+        ifAddEdge m1 m2 e@(ROp f1 f2)       = f1 `S.member` cl m1 && f2 `S.member` cl m1 || f2 `S.member` cl m1 && e `S.member` cl m2
+        ifAddEdge m1 m2 e@(Not (ROp f1 f2)) = not $ f1 `S.member` cl m1 && f2 `S.member` cl m1 || f2 `S.member` cl m1 && e `S.member` cl m2
+        ifAddEdge _ _ _                     = True
 
     let trans1 = createTransitions $ do
           m2 <- nodes
           let a = subexprsGetSatisfiedVars m2
           m1 <- nodes
-          guard (any (ifAddEdge m1 m2) (toList $ cl m1))
+          guard (all (ifAddEdge m1 m2) (toList $ cl m1))
           pure (m1, a, m2)
     let trans2 = M.unionsWith (M.unionWith (<>)) $
                      map (\v -> M.singleton initNode (M.singleton (subexprsGetSatisfiedVars v) (S.singleton v)))
                          (filter (S.member f . cl) nodes)
-    GenBuchiAutomaton (trans1 <> trans2) (S.singleton initNode) (S.fromList finals)
+    pure $ GenBuchiAutomaton (trans1 <> trans2) (S.singleton initNode) (S.fromList finals)
 
 ltlToBuchiAutomaton :: LTL -> BuchiAutomaton SatisfiedVars (Subexprs, Layer)
 ltlToBuchiAutomaton = gbaToBuchiAutomaton . ltlToGBA
@@ -213,21 +233,27 @@ operators =
     gop a = Not $ fop $ Not a
     impl a b = Not a `Or` b
 
--- rws :: [Text] -- list of reserved words
--- rws = ["true", "false", "not", "X", "U", "R", "F", "G"]
+rws :: [Text] -- list of reserved words
+rws = ["true", "false", "not", "X", "U", "R", "F", "G"]
 
--- ident :: Parser Lg.Ident
--- ident = Lg.Ident <$> identifier (`elem` rws)
+ident :: Parser (Lg.Ident, Lg.Expr)
+ident = do
+    i <- Lg.Ident <$> identifier (`elem` rws)
+    pure (i, Lg.Var i)
 
 term :: Parser LTL
 term =
       parens ltlExpr
   <|> (BConst True  <$ rword "true")
   <|> (BConst False <$ rword "false")
-  <|> (uncurry Var <$> parseExpr)
+  <|> (uncurry Var <$> ident)
+  <|> (uncurry Var <$> parsePred)
   where
-    parseExpr = do
+    parsePred = do
+        void $ symbol "["
         e <- Lg.expr
-        case e of
-            Lg.Var ident -> pure (ident, e)
-            _            -> pure (Lg.Ident $ "tmp" <> show (hash e), e)
+        res <- case e of
+            Lg.Var i -> pure (i, e)
+            _        -> pure (Lg.Ident $ toText $ "tmp" <> show (hash e), e)
+        void $ symbol "]"
+        pure res

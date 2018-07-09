@@ -18,8 +18,9 @@ import LTL (SatisfiedVars (..))
 -- | Function calls in considered formulas are prohibited,
 -- so we don't bother with reader state.
 evalExprInEnv :: Expr -> Env -> Either InterpretError Value
-evalExprInEnv e env = usingReaderT mempty $
-    evalStateT (evalExpr e) initState
+evalExprInEnv e env =
+    usingReader mempty $
+    evalStateT (runExceptT $ evalExpr e) initState
   where
     initStateId = (StmtId (-1) (-1), env)
     initAutomaton = EvalAutomaton mempty mempty
@@ -31,22 +32,25 @@ type VarMapping = [(Ident, Expr)]
 -- propositional variables which are satisfied in this env
 satisfiedInEnv :: Env -> VarMapping -> Either InterpretError SatisfiedVars
 satisfiedInEnv env = fmap SatisfiedVars . foldM checkVar mempty
-  where checkVar xs (x, e) = case evalExprInEnv e env of
-            Left (UndefinedVar _) -> Right xs
-            Left err              -> Left err
-            Right v -> case v of
-                Boolean True  -> Right $ S.insert x xs
-                Boolean False -> Right xs
-                Num _         -> Left $ TypeMismatch Int' Bool'
+  where
+    checkVar xs (x, e) =
+      case evalExprInEnv e env of
+        Left (UndefinedVar _) -> Right xs
+        Left err              -> Left err
+        Right v -> case v of
+            Boolean True  -> Right $ S.insert x xs
+            Boolean False -> Right xs
+            Num _         -> Left $ TypeMismatch Int' Bool'
 
 addTransition
     :: forall alph state. (Ord alph, Ord state)
     => state -> alph -> state -> Transitions alph state -> Transitions alph state
 addTransition from sym to = M.alter addM from
-  where addM (Just m) = Just $ M.alter addS sym m
-        addM Nothing  = Just $ M.singleton sym $ S.singleton to
-        addS (Just s) = Just $ S.insert to s
-        addS Nothing  = Just $ S.singleton to
+  where
+    addM (Just m) = Just $ M.alter addS sym m
+    addM Nothing  = Just $ M.singleton sym $ S.singleton to
+    addS (Just s) = Just $ S.insert to s
+    addS Nothing  = Just $ S.singleton to
 
 addKripkeTransition
     :: VarMapping -> StateId -> StateId

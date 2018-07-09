@@ -1,0 +1,6 @@
+G ([x >= y] -> F [x <= y])
+G [t == 0] || F exchange
+G [x != y]
+G ([x > y] -> X [x > y])
+G ([x > y] -> X [x == y])
+[x >= y] U [y == 0]

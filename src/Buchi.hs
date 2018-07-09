@@ -57,23 +57,24 @@ gbaToBuchiAutomaton
     => GenBuchiAutomaton alph state -> BuchiAutomaton alph (state, Layer)
 gbaToBuchiAutomaton (GenBuchiAutomaton t i f) = BuchiAutomaton t1 i1 f1
   where
-    headL []    = error "invalid GBA: empty set of sets"
-    headL (x:_) = x
-
     n = length fxs
     fxs = S.toList f
 
     i1 = S.fromList $ map (, Layer 0) $ S.toList i
-    f1 = S.fromList $ map (, Layer 0) $ S.toList $ headL fxs
+    f1 = case fxs of
+            []     -> S.fromList $ map (, Layer 0) $ M.keys t ++ S.toList i
+            (h:_)  -> S.fromList $ map (, Layer 0) $ S.toList h
 
     t1 = createTransitions $ concatMap constructEdges $ toFlatTransitions t
 
     constructEdges :: (state, alph, state) -> [((state, Layer), alph, (state, Layer))]
-    constructEdges (s1, a, s2) = do
-        (idx, final) <- zip [0..] fxs
-        pure $
-          if s1 `S.member` final then ((s1, Layer idx), a, (s2, Layer $ (idx + 1) `mod` n))
-          else ((s1, Layer idx), a, (s2, Layer idx))
+    constructEdges (s1, a, s2)
+        | null fxs  = [((s1, Layer 0), a, (s2, Layer 0))]
+        | otherwise = do
+            (idx, final) <- zip [0..] fxs
+            pure $
+              if s1 `S.member` final then ((s1, Layer idx), a, (s2, Layer $ (idx + 1) `mod` n))
+              else ((s1, Layer idx), a, (s2, Layer idx))
 
 -- Intersection --
 
@@ -140,25 +141,25 @@ type Used state = Set state
 type Graph state = Map state (Set state)
 type Components state = Map state Int
 
-checkEmptiness :: (Show state, Ord state) => BuchiAutomaton alph state -> Bool
-checkEmptiness (BuchiAutomaton tr inp fin) =
+checkEmptiness :: (Show state, Show alph, Ord state) => BuchiAutomaton alph state -> Bool
+checkEmptiness (BuchiAutomaton tr inp fin) = do
     let gr = transitionsToGraph tr -- graph without letters
         invGr = invGraph gr        -- inverted graph
-        allNodes = M.keys tr
-        -- Finding SCC
-        order = dfs1 gr allNodes
-        comp = dfs2 invGr order -- map from node to number of component
-        -- Condensing graph
-        condGraph = condenseGraph comp gr
-        getComp v = fromMaybe (error $ "component for " <> show v <> " in condense graph not found") (M.lookup v comp)
+    let !allNodes = S.toList $ S.fromList $ M.keys tr ++ S.toList inp ++ S.toList fin
+    -- Finding SCC
+    let !order = dfs1 gr allNodes
+    let comp = dfs2 invGr order -- map from node to number of component
+    -- Condensing graph
+    let condGraph = condenseGraph comp gr
+    let getComp v = fromMaybe (error $ "component for " <> show v <> " in condense graph not found") (M.lookup v comp)
         compSize = M.fromListWith (+) $ map (\x -> (x,1::Int)) $ M.elems comp -- map from component to its size
         producesCycle cp = -- component can produce cycle if either it's not trivial or it has a loop
             fromMaybe (0 :: Int) (flip M.lookup compSize cp) > 1 ||
-                                 cp `S.member` fromMaybe mempty (M.lookup cp condGraph)
+                                cp `S.member` fromMaybe mempty (M.lookup cp condGraph)
         compInps = map getComp $ toList inp -- componets of input nodes
-        finProcusingCycle = S.fromList $ filter producesCycle $ map getComp $ toList fin -- final nodes which can produce a cycle
-        visited = runDfs pass identity (dfs (const pass)) condGraph compInps -- visited nodes from input nodes
-    in all (flip S.notMember finProcusingCycle) $ toList visited
+        finProdusingCycle = S.fromList $ filter producesCycle $ map getComp $ toList fin -- final nodes which can produce a cycle
+    let !visited = runDfs pass identity (dfs (const pass)) condGraph compInps -- visited nodes from input nodes
+    all (flip S.notMember finProdusingCycle) $ toList visited
 
 dfs1 :: Ord state => Graph state -> [state] -> [state]
 dfs1 gr nodes = snd $ runDfs pass _1 (dfs (modify . second . (:))) gr nodes
@@ -198,7 +199,7 @@ dfs after ln gr v = do
 condenseGraph :: Ord state => Components state -> Graph state -> Graph Int
 condenseGraph comps = foldl' addEdges mempty . M.toList
   where
-    addEdges gr (fr, to) = foldl' (addEdge $ getComp fr) gr $ S.toList to
+    addEdges gr (fr, toNodes) = foldl' (addEdge $ getComp fr) gr $ S.toList toNodes
 
     addEdge fr gr (getComp -> to) = case M.lookup fr gr of
         Nothing -> M.insert fr (S.singleton to) gr

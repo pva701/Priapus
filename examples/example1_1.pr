@@ -6,9 +6,9 @@ bool fl = true;
 
 start {
     int x1 = 5, y1 = 10, i = 0;
-    while (fl) {
-        fl = f(x1, i) < 10;
+    while (fl) atomic {
         i = i + 1;
+        fl = f(x1, i) < 10;
     }
     return i;
 }

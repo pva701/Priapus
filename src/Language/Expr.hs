@@ -12,15 +12,16 @@ module Language.Expr
        , ident
        ) where
 
-import Prelude (show)
-import Universum hiding (Const, show, try)
+import           Prelude              (show)
+import           Universum            hiding (Const, show, try)
 
-import qualified Data.Set as S
-import Text.Megaparsec
-import Text.Megaparsec.Expr
+import           Data.List            (intercalate)
+import qualified Data.Set             as S
+import           Text.Megaparsec
+import           Text.Megaparsec.Expr
 
-import Language.Lexer
-import Language.Types
+import           Language.Lexer
+import           Language.Types
 
 -- | Value types
 data Value
@@ -35,7 +36,10 @@ instance Show Value where
 
 -- | Identifiers
 newtype Ident = Ident Text
-    deriving (Eq, Ord, Show, Generic, IsString)
+    deriving (Eq, Ord, Generic, IsString)
+
+instance Show Ident where
+    show (Ident nm) = show nm
 
 -- | Expressions
 data Expr
@@ -43,14 +47,41 @@ data Expr
     | Var Ident
     | Binop Op Expr Expr
     | Call Ident [Expr]
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Generic)
+
+showWithBr :: Expr -> String
+showWithBr x@(Const _)  = show x
+showWithBr (Var (Ident nm))  = toString nm
+showWithBr x@(Call _ _) = show x
+showWithBr x            = "(" ++ show x ++ ")"
+
+instance Show Expr where
+    show (Const v) = show v
+    show (Var v) = show v
+    show (Binop op e1 e2) = showWithBr e1 ++ " " ++ show op ++ " " ++ showWithBr e2
+    show (Call f exprs) = show f ++ "(" ++ intercalate "," (map show exprs) ++ ")"
 
 -- | Binary operations
 data Op
     = Add | Sub | Mul | Div | Mod          -- arithmetics
     | Eq  | NEq | LEq | GEq | Less | More  -- comparisons
     | And | Or                             -- bool
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Generic)
+
+instance Show Op where
+    show Add  = "+"
+    show Sub  = "-"
+    show Mul  = "*"
+    show Div  = "/"
+    show Mod  = "%"
+    show Eq   = "=="
+    show NEq  = "!="
+    show LEq  = "<="
+    show GEq  = ">="
+    show Less = "<"
+    show More = ">"
+    show And  = "&&"
+    show Or   = "||"
 
 instance Hashable Op
 instance Hashable Expr

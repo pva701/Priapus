@@ -1,15 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoImplicitPrelude     #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RecordWildCards       #-}
 
 module Main where
 
 import           Universum
 
-import           Buchi           (checkEmptiness, intersectBuchiAutomatons)
-import           Conversion      (evalToBuchi)
-import           Language.Driver (runProgramFile)
+import           Buchi              (checkEmptiness, intersectBuchiAutomatons)
+import           Conversion         (evalToBuchi)
+import           Language.Driver    (runProgramFile)
 import           Language.Interpret (IState (..))
-import           LTL             (LTL (Not), ltlToBuchiAutomaton, parseLTL, propositionals)
+import           LTL                (LTL (Not), ltlToBuchiAutomaton, parseLTL,
+                                     propositionals)
 
 main :: IO ()
 main = do
@@ -20,9 +23,10 @@ main = do
         let printf :: String -> IO ()
             printf s = putStrLn $ "Formula #" <> show i <> ": " <> s
         case parseLTL fs of
-            Left e  -> printf $ show e
+            Left e  -> do
+                putStrLn $ fs
+                printf $ "Parser error:" <> show e
             Right f -> do
-                putStrLn $ "ast: " ++ show f ++ "\n"
                 let fba = ltlToBuchiAutomaton (Not f)
                 let props = propositionals f
                 case evalToBuchi props _iAutomaton of

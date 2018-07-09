@@ -1,16 +1,19 @@
-fun int gcd(int x, int y) {
-    int t;
+bool exchange = false;
+int x = 18;
+int y = 12;
+int t = 0;
+
+fun int gcd() {
     while (y != 0) atomic {
         x = x % y;
         t = y;
         y = x;
         x = t;
+        exchange = true;
     }
     return x;
 }
 
 start {
-    int x = 18, y = 12;
-    int res = gcd(x, y);
-    return res;
+    return gcd();
 }
