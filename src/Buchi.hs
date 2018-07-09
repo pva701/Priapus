@@ -1,8 +1,9 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes            #-}
 
 module Buchi
-    ( BuchiAutomaton (..)
+    ( Transitions
+    , BuchiAutomaton (..)
     , GenBuchiAutomaton (..)
     , Layer
     , createTransitions
@@ -12,10 +13,10 @@ module Buchi
     , checkEmptiness
     ) where
 
-import           Universum
+import Universum
 
-import qualified Data.Map  as M
-import qualified Data.Set  as S
+import qualified Data.Map as M
+import qualified Data.Set as S
 
 -- Non-deterministic buachi automaton
 type Transitions alph state = Map state (Map alph (Set state))
@@ -56,7 +57,7 @@ gbaToBuchiAutomaton
     => GenBuchiAutomaton alph state -> BuchiAutomaton alph (state, Layer)
 gbaToBuchiAutomaton (GenBuchiAutomaton t i f) = BuchiAutomaton t1 i1 f1
   where
-    headL [] = error "invalid GBA: empty set of sets"
+    headL []    = error "invalid GBA: empty set of sets"
     headL (x:_) = x
 
     n = length fxs
@@ -91,7 +92,7 @@ data TwoLayers = FirstL | SecondL
     deriving (Eq, Ord, Show)
 
 anotherLayer :: TwoLayers -> TwoLayers
-anotherLayer FirstL = SecondL
+anotherLayer FirstL  = SecondL
 anotherLayer SecondL = FirstL
 
 intersectBuchiAutomatons

@@ -26,4 +26,5 @@ test_evalExamples = testGroup "Evaluating example programs"
     [ testEvalExample "example1"
     , testEvalExample "example2"
     , testEvalExample "example3"
+    , testEvalExample "example4"
     ]

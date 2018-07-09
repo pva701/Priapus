@@ -3,8 +3,12 @@
 
 module Language.Stmt
        ( Stmt (..)
+       , StmtId (..)
+       , Scope (..)
        , Type (..)
        , stmt
+       , stmtId
+       , scope
        , typename
        ) where
 
@@ -12,6 +16,7 @@ import Prelude (show)
 import Universum hiding (Type, break, many, show, some, try)
 
 import Text.Megaparsec
+import Text.Megaparsec.Pos (SourcePos (..), unPos)
 
 import Language.Expr (Expr, Ident (..))
 import qualified Language.Expr as Expr
@@ -26,22 +31,38 @@ instance Show Type where
     show Bool' = "bool"
     show Int'  = "int"
 
+-- | Statement id (basically simplified source position)
+data StmtId = StmtId !Int !Int
+    deriving (Eq, Ord, Show, Generic)
+
+-- | Signifies the boundaries of a new scope
+data Scope = Scope
+    { scopeBegin :: !StmtId
+    , scopeBody  :: !Stmt
+    , scopeEnd   :: !StmtId
+    } deriving (Eq, Ord, Show, Generic)
+
 -- | Language statements
 data Stmt
     = Seq Stmt Stmt
     | Skip
-    | Declare Type Ident
-    | Assign Ident Expr
-    | If Expr Stmt Stmt
-    | While Expr Stmt
-    | Break
-    | Return (Maybe Expr)
+    | Declare Type StmtId Ident
+    | Assign StmtId Ident Expr
+    | If Expr Scope Scope
+    | While Expr Scope
+    | Break StmtId
+    | Return StmtId (Maybe Expr)
     | Call Ident [Expr]
-    | Atomic Stmt
+    | Atomic StmtId Stmt
     deriving (Eq, Ord, Show, Generic)
 
+stmtId :: Parser StmtId
+stmtId = do
+    SourcePos {..} <- getPosition
+    return $ StmtId (unPos sourceLine) (unPos sourceColumn)
+
 assignment :: Parser Stmt
-assignment = Assign <$> (Expr.ident <* str "=") <*> Expr.expr
+assignment = Assign <$> stmtId <*> (Expr.ident <* str "=") <*> Expr.expr
 
 typename :: Parser Type
 typename = Bool' <$ rword "bool" <|> Int' <$ rword "int"
@@ -49,18 +70,20 @@ typename = Bool' <$ rword "bool" <|> Int' <$ rword "int"
 declaration :: Parser Stmt
 declaration = do
     t <- typename
-    let onlyDec = Declare t <$> Expr.ident
+    let onlyDec = Declare t <$> stmtId <*> Expr.ident
         decAssign = do
+            dId <- stmtId
             x <- Expr.ident <* str "="
+            aId <- stmtId
             v <- Expr.expr
-            pure $ Seq (Declare t x) (Assign x v)
+            pure $ Seq (Declare t dId x) (Assign aId x v)
     flattenSeqs <$> (try decAssign <|> onlyDec) `sepBy` str ","
 
 break :: Parser Stmt
-break = Break <$ rword "break"
+break = Break <$> stmtId <* rword "break"
 
 ret :: Parser Stmt
-ret = Return <$ rword "return" <*> optional Expr.expr
+ret = Return <$> stmtId <* rword "return" <*> optional Expr.expr
 
 call :: Parser Stmt
 call = Call <$> Expr.ident <*> parens (Expr.expr `sepBy` str ",")
@@ -69,15 +92,21 @@ block :: Parser Stmt
 block = try (parens' "{" "}" (flattenSeqs <$> many singleStmt))
     <|> singleStmt
 
+scope' :: Parser Stmt -> Parser Scope
+scope' p = Scope <$> stmtId <*> p <*> stmtId
+
+scope :: Parser Scope
+scope = scope' block
+
 ifElse :: Parser Stmt
-ifElse = (If <$ rword "if") <*> parens Expr.expr <*> block
-    <*> (maybeToStmt <$> optional (rword "else" *> block))
+ifElse = (If <$ rword "if") <*> parens Expr.expr <*> scope
+    <*> (scope' $ maybeToStmt <$> optional (rword "else" *> block))
 
 while :: Parser Stmt
-while = (While <$ rword "while") <*> parens Expr.expr <*> block
+while = (While <$ rword "while") <*> parens Expr.expr <*> scope
 
 atomic :: Parser Stmt
-atomic = (Atomic <$ rword "atomic") <*> block
+atomic = (Atomic <$> stmtId <* rword "atomic") <*> block
 
 singleStmt :: Parser Stmt
 singleStmt =

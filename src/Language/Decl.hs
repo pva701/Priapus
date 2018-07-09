@@ -15,7 +15,7 @@ import Text.Megaparsec
 import Language.Expr (Ident (..), Value)
 import qualified Language.Expr as Expr
 import Language.Lexer
-import Language.Stmt (Stmt, Type (..))
+import Language.Stmt (Scope (..), Stmt, Type (..))
 import qualified Language.Stmt as Stmt
 import Language.Types
 
@@ -24,7 +24,7 @@ data Decl = Decl
     { dReturnType :: !(Maybe Type)
     , dName       :: !Ident
     , dParams     :: ![(Type, Ident)]
-    , dBody       :: !Stmt
+    , dBody       :: !Scope
     } deriving (Show, Eq, Generic)
 
 type VarDef = (Type, Ident, Maybe Value)
@@ -47,7 +47,7 @@ declaration = Decl <$ rword "fun"
     <*> retType
     <*> Expr.ident
     <*> parens (param `sepBy` symbol ",")
-    <*> parens' "{" "}" Stmt.stmt
+    <*> (Scope <$> Stmt.stmtId <*> parens' "{" "}" Stmt.stmt <*> Stmt.stmtId)
 
 varDef :: Parser VarDef
 varDef = (<* symbol ";") $ (,,)

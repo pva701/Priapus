@@ -1,31 +1,31 @@
 module LTL
-    ( LTL (..)
-    , parseLTL
+       ( LTL (..)
+       , SatisfiedVars (..)
+       , parseLTL
 
-    , ltlToBuchiAutomaton
-    , ltlToGBA
+       , ltlToBuchiAutomaton
+       , ltlToGBA
 
-    -- for testing
-    , closure
-    , checkClosure
-    , allMaxConsistent
-    ) where
+       -- for testing
+       , closure
+       , checkClosure
+       , allMaxConsistent
+       ) where
 
-import           Universum            hiding (many, try)
+import Universum hiding (many, try)
 
-import           Data.List            (nub)
-import qualified Data.Map             as M
-import qualified Data.Set             as S
-import           Text.Megaparsec      hiding (State)
-import           Text.Megaparsec.Char
-import           Text.Megaparsec.Expr
+import Data.List (nub)
+import qualified Data.Map as M
+import qualified Data.Set as S
+import Text.Megaparsec hiding (State)
+import Text.Megaparsec.Char
+import Text.Megaparsec.Expr
 
-import           Buchi                (BuchiAutomaton (..),
-                                       GenBuchiAutomaton (..), Layer,
-                                       createTransitions, gbaToBuchiAutomaton)
-import           Language.Expr        (Ident (..))
-import           Language.Lexer
-import           Language.Types
+import Buchi (BuchiAutomaton (..), GenBuchiAutomaton (..), Layer, createTransitions,
+              gbaToBuchiAutomaton)
+import Language.Expr (Ident (..))
+import Language.Lexer
+import Language.Types
 
 data LTL
     = Var Ident
@@ -49,22 +49,21 @@ neg (Not a)    = a
 neg a          = Not a
 
 negNormalForm :: LTL -> LTL
-negNormalForm (Not (Not a)) = negNormalForm a
-negNormalForm v@(Var _) = v
-negNormalForm c@(BConst _) = c
-negNormalForm x@(Not (Var _)) = x
+negNormalForm (Not (Not a))    = negNormalForm a
+negNormalForm v@(Var _)        = v
+negNormalForm c@(BConst _)     = c
+negNormalForm x@(Not (Var _))  = x
 negNormalForm (Not (BConst v)) = BConst (not v)
-negNormalForm (Not (Or a b)) = negNormalForm (Not a) `And` negNormalForm (Not b)
-negNormalForm (Not (And a b)) = negNormalForm (Not a) `Or` negNormalForm (Not b)
-negNormalForm (Not (XOp e)) = XOp (negNormalForm $ Not e)
-negNormalForm (Not (UOp a b)) = negNormalForm (Not a) `ROp` negNormalForm (Not b)
-negNormalForm (Not (ROp a b)) = negNormalForm (Not a) `UOp` negNormalForm (Not b)
-negNormalForm (XOp a) = XOp $ negNormalForm a
-negNormalForm (Or a b) = negNormalForm a `Or` negNormalForm b
-negNormalForm (And a b) = negNormalForm a `And` negNormalForm b
-negNormalForm (UOp a b) = negNormalForm a `UOp` negNormalForm b
-negNormalForm (ROp a b) = negNormalForm a `ROp` negNormalForm b
-
+negNormalForm (Not (Or a b))   = negNormalForm (Not a) `And` negNormalForm (Not b)
+negNormalForm (Not (And a b))  = negNormalForm (Not a) `Or` negNormalForm (Not b)
+negNormalForm (Not (XOp e))    = XOp (negNormalForm $ Not e)
+negNormalForm (Not (UOp a b))  = negNormalForm (Not a) `ROp` negNormalForm (Not b)
+negNormalForm (Not (ROp a b))  = negNormalForm (Not a) `UOp` negNormalForm (Not b)
+negNormalForm (XOp a)          = XOp $ negNormalForm a
+negNormalForm (Or a b)         = negNormalForm a `Or` negNormalForm b
+negNormalForm (And a b)        = negNormalForm a `And` negNormalForm b
+negNormalForm (UOp a b)        = negNormalForm a `UOp` negNormalForm b
+negNormalForm (ROp a b)        = negNormalForm a `ROp` negNormalForm b
 
 data Subexprs = Subexprs
     { cl      :: Set LTL -- corresponding ordered set
